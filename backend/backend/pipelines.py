@@ -130,7 +130,20 @@ class AiGenerationPipeline:
     def _call_ai_api(self, prompt, spider):
         """Call Gemini API with retry logic"""
         
-        candidate_models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
+        # Get preferred model from environment (only Gemini models for content generation)
+        preferred_model = os.getenv("PREFERRED_MODEL", "gemini-2.5-flash")
+        
+        # Available Gemini models for content generation
+        all_models = ['gemini-2.5-flash', 'gemini-2.5-pro']
+        
+        # Prioritize preferred model
+        if preferred_model in all_models:
+            candidate_models = [preferred_model] + [m for m in all_models if m != preferred_model]
+        else:
+            candidate_models = all_models
+        
+        spider.logger.info(f"🎯 Model ưu tiên: {preferred_model}")
+        
         max_retries = 3
         
         for model_name in candidate_models:
@@ -158,6 +171,10 @@ class AiGenerationPipeline:
                         raise ValueError("Missing title or content in response")
                     
                     spider.logger.info(f"✅ AI xử lý thành công với {model_name}")
+                    
+                    # Store model used for reporting
+                    data['_model_used'] = model_name
+                    
                     return data
                     
                 except json.JSONDecodeError as e:

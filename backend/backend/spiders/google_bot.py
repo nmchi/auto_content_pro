@@ -5,6 +5,8 @@ import trafilatura
 from urllib.parse import urljoin, urlparse
 from twisted.internet import error as twisted_error
 from backend.items import BlogPostItem
+from backend.adaptive_search import get_adaptive_system
+from google import genai
 
 class GoogleSpider(scrapy.Spider):
     name = "google_bot"
@@ -57,14 +59,47 @@ class GoogleSpider(scrapy.Spider):
             self.logger.error("Thiếu GOOGLE_API_KEY hoặc GOOGLE_CSE_ID!")
             return
         
+        # === ADAPTIVE SEARCH SYSTEM ===
+        # Get site ID from WP URL
+        wp_url = os.getenv("WP_URL", "")
+        site_id = urlparse(wp_url).netloc.replace('.', '_') if wp_url else "default"
+        
+        # Initialize adaptive system
+        try:
+            ai_client = genai.Client(api_key=api_key)
+            adaptive_system = get_adaptive_system(site_id, ai_client)
+            
+            # Check if profile exists
+            if not adaptive_system.profile:
+                self.logger.warning("⚠️ Chưa có Site Profile! Dùng search mặc định.")
+                self.logger.warning("   Hãy tạo profile trong Dashboard > Settings > Site Profile")
+                search_query = self.keyword
+                strategy = {}
+            else:
+                # Classify keyword
+                keyword_type = adaptive_system.classify_keyword(self.keyword, ai_client)
+                self.logger.info(f"📊 Keyword type: {keyword_type}")
+                
+                # Get strategy
+                strategy = adaptive_system.get_search_strategy(self.keyword, keyword_type)
+                
+                # Build optimized query
+                search_query = adaptive_system.build_search_query(self.keyword, strategy)
+                self.logger.info(f"🔍 Search query: {search_query}")
+        except Exception as e:
+            self.logger.warning(f"Adaptive search error: {e}, using default")
+            search_query = self.keyword
+            strategy = {}
+            adaptive_system = None
+        
         # Gọi Google Custom Search API
-        self.logger.info(f"Đang tìm kiếm Google cho: {self.keyword}")
+        self.logger.info(f"Đang tìm kiếm Google cho: {search_query}")
         
         search_url = "https://www.googleapis.com/customsearch/v1"
         params = {
             'key': api_key,
             'cx': cse_id,
-            'q': self.keyword,
+            'q': search_query,  # Use optimized query
             'num': 10,  # Lấy 10 kết quả để có nhiều lựa chọn
             'lr': 'lang_vi',  # Ưu tiên tiếng Việt
         }
@@ -83,32 +118,51 @@ class GoogleSpider(scrapy.Spider):
                 self.logger.info(f"Response từ Google: {data.get('searchInformation', {})}")
                 return
             
-            # Lấy URL phù hợp nhất
+            # Lấy URL phù hợp nhất với adaptive filtering
             target_url = None
             target_image = None
+            target_title = None
             
-            # Các domain không mong muốn
+            # Get domains from strategy (if available)
             skip_domains = [
                 'youtube.com', 'facebook.com', 'tiktok.com', 
                 'twitter.com', 'instagram.com', 'pinterest.com',
                 'amazon.com', 'shopee.vn', 'lazada.vn'
             ]
             
-            # Các domain ưu tiên (có nội dung chất lượng)
-            priority_domains = [
-                'truyenfull', 'truyen', 'metruyencv', 'tangthuvien',
-                'wikidich', 'sstruyen', 'truyenyy', 'novelhall'
-            ]
+            # Priority domains from adaptive system or fallback
+            priority_domains = strategy.get('priority_domains', []) if strategy else []
+            if not priority_domains:
+                # Fallback to default
+                priority_domains = [
+                    'truyenfull', 'truyen', 'metruyencv', 'tangthuvien',
+                    'wikidich', 'sstruyen', 'truyenyy', 'novelhall'
+                ]
+            
+            # Store candidates with scores
+            candidates = []
             
             for item in data['items']:
                 url = item.get('link', '')
+                title = item.get('title', '')
+                snippet = item.get('snippet', '')
                 domain = urlparse(url).netloc.lower()
                 
                 # Bỏ qua các trang không mong muốn
                 if any(skip in domain for skip in skip_domains):
                     continue
                 
-                # Ưu tiên các trang truyện
+                # Score relevance if adaptive system available
+                if adaptive_system and strategy:
+                    relevance_score = adaptive_system.score_result_relevance(title, snippet, strategy)
+                    
+                    if relevance_score < 0.3:
+                        self.logger.info(f"⏭️ Skipped (low relevance {relevance_score:.2f}): {title[:50]}...")
+                        continue
+                else:
+                    relevance_score = 0.5  # Default score
+                
+                # Check priority domain
                 is_priority = any(p in domain for p in priority_domains)
                 
                 # Lấy hình ảnh từ kết quả tìm kiếm (nếu có)
@@ -132,11 +186,44 @@ class GoogleSpider(scrapy.Spider):
                             image_url = meta['og:image']
                             break
                 
-                if is_priority or target_url is None:
-                    target_url = url
-                    target_image = image_url
-                    if is_priority:
-                        break  # Dừng nếu tìm thấy trang ưu tiên
+                # Add to candidates
+                candidates.append({
+                    'url': url,
+                    'title': title,
+                    'image': image_url,
+                    'relevance': relevance_score,
+                    'is_priority': is_priority
+                })
+            
+            # Sort candidates by priority and relevance
+            if candidates:
+                candidates.sort(key=lambda x: (x['is_priority'], x['relevance']), reverse=True)
+                
+                # Pick best candidate
+                best = candidates[0]
+                target_url = best['url']
+                target_image = best['image']
+                target_title = best['title']
+                
+                self.logger.info(f"✅ Best result (score: {best['relevance']:.2f}): {target_title[:60]}...")
+                
+                # Learn from this search
+                if adaptive_system and strategy:
+                    try:
+                        should_refine = adaptive_system.learn_from_search(
+                            self.keyword,
+                            keyword_type if 'keyword_type' in locals() else 'default',
+                            search_query,
+                            target_url,
+                            target_title
+                        )
+                        
+                        if should_refine:
+                            self.logger.info("🔄 Auto-refining profile...")
+                            adaptive_system.refine_profile(ai_client)
+                            self.logger.info("✅ Profile refined!")
+                    except Exception as e:
+                        self.logger.warning(f"Learning error: {e}")
             
             if target_url:
                 self.logger.info(f"✅ Tìm thấy URL: {target_url}")

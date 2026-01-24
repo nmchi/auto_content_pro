@@ -12,6 +12,18 @@ from requests.auth import HTTPBasicAuth
 st.set_page_config(page_title="Auto Content Pro (Free Version)", layout="wide")
 st.title("🚀 Auto Content Pro: All-in-One (Gemini Powered)")
 
+# --- IMPORTS TỪ BACKEND ---
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+
+try:
+    from backend.prompt_config import CATEGORY_CONFIGS
+    # Tạo CATEGORY_ROLES từ config
+    CATEGORY_ROLES = {k: v['role'] for k, v in CATEGORY_CONFIGS.items()}
+except ImportError:
+    st.error("❌ Không thể import prompt_config.py từ backend!")
+    CATEGORY_ROLES = {"default": "Bạn là chuyên gia viết bài chuẩn SEO."}
+
 # --- PROMPT MẪU CHUYÊN NGHIỆP (Theo chuẩn vnrewrite) ---
 DEFAULT_PROMPT_TEMPLATE = """
 ## VAI TRÒ
@@ -66,32 +78,32 @@ Trả về **DUY NHẤT** JSON với cấu trúc sau (không có text nào khác
 {content}
 """
 
-# --- PROMPT MẪU CHO TỪNG DANH MỤC ---
-CATEGORY_ROLES = {
-    "Truyện Tranh": "Với tư cách là biên tập viên chuyên về truyện tranh/manga/manhwa/manhua tại website, bạn am hiểu sâu sắc về các thể loại, tác giả, và xu hướng đọc truyện của độc giả Việt Nam.",
-    "Review Truyện": "Với tư cách là reviewer truyện chuyên nghiệp, bạn có khả năng phân tích cốt truyện, nhân vật, và đưa ra đánh giá khách quan, hấp dẫn người đọc.",
-    "Tiên Hiệp": "Với tư cách là chuyên gia về thể loại tiên hiệp/huyền huyễn, bạn am hiểu hệ thống tu luyên, cảnh giới, và văn hóa tiểu thuyết Trung Quốc.",
-    "Manga": "Với tư cách là chuyên gia manga Nhật Bản, bạn am hiểu văn hóa otaku, các nhà xuất bản, mangaka nổi tiếng và xu hướng manga hiện tại.",
-    "Manhwa": "Với tư cách là chuyên gia manhwa Hàn Quốc, bạn am hiểu về webtoon, các nền tảng phát hành và đặc trưng của truyện tranh Hàn.",
-    "Manhua": "Với tư cách là chuyên gia manhua Trung Quốc, bạn am hiểu về các thể loại tu chân, huyền huyễn và thị trường truyện tranh Trung Quốc.",
-    "Giải Mã Giấc Mơ": "Với tư cách là chuyên gia giải mã giấc mơ am hiểu sâu sắc văn hóa và tâm linh người Việt, đặc biệt là mối liên hệ giữa giấc mơ và các con số may mắn.",
-    "Phong Thủy": "Với tư cách là chuyên gia phong thủy, bạn am hiểu về ngũ hành, bát quái, và cách ứng dụng phong thủy trong đời sống hiện đại.",
-    "Tử Vi": "Với tư cách là chuyên gia tử vi/chiêm tinh, bạn am hiểu về 12 cung hoàng đạo, tử vi Việt Nam và cách luận giải vận mệnh.",
-    "default": "Với tư cách là nhà sáng tạo nội dung chuyên nghiệp, bạn có khả năng viết bài hấp dẫn, chuẩn SEO và phù hợp với độc giả Việt Nam."
-}
+# --- VAI TRÒ MẶC ĐỊNH ---
+DEFAULT_ROLE = "Với tư cách là nhà sáng tạo nội dung chuyên nghiệp, bạn có khả năng viết bài hấp dẫn, chuẩn SEO và phù hợp với độc giả Việt Nam."
+
+# Session state để lưu vai trò tùy chỉnh cho từng danh mục
+if 'category_roles' not in st.session_state:
+    st.session_state['category_roles'] = {}
+
+def get_role_for_category(category_name):
+    """Lấy vai trò cho danh mục - ưu tiên custom, sau đó đến default config"""
+    # 1. Check custom override in session_state
+    if 'category_roles' in st.session_state and category_name in st.session_state['category_roles']:
+        return st.session_state['category_roles'][category_name]
+
+    # 2. Check predefined roles from prompt_config
+    for key, role in CATEGORY_ROLES.items():
+        if key.lower() in category_name.lower():
+            return role
+            
+    # 3. Fallback
+    return CATEGORY_ROLES.get("default", DEFAULT_ROLE)
 
 # --- KHỞI TẠO STATE ---
 if 'wp_categories' not in st.session_state: st.session_state['wp_categories'] = {}
 if 'is_connected' not in st.session_state: st.session_state['is_connected'] = False
 if 'cat_prompts' not in st.session_state: st.session_state['cat_prompts'] = {}
 if 'brand_name' not in st.session_state: st.session_state['brand_name'] = "VanGioiComics"
-
-def get_role_for_category(category_name):
-    """Lấy vai trò phù hợp cho danh mục"""
-    for key, role in CATEGORY_ROLES.items():
-        if key.lower() in category_name.lower():
-            return role
-    return CATEGORY_ROLES["default"]
 
 def generate_prompt_for_category(category_name, brand_name):
     """Tạo prompt hoàn chỉnh cho danh mục"""
@@ -103,14 +115,12 @@ def generate_prompt_for_category(category_name, brand_name):
     
     return prompt
 
-def generate_prompt_with_gemini(api_key, category_name="", brand_name=""):
-    """Dùng Gemini để tạo prompt tùy chỉnh"""
+def generate_prompt_with_ai(api_key, category_name="", brand_name="", model_name="gemini-2.5-flash"):
+    """Dùng AI (Gemini hoặc Claude) để tạo prompt tùy chỉnh"""
     if not api_key:
-        return "⚠️ Chưa có Gemini API Key!"
+        return "⚠️ Chưa có API Key!"
     
     try:
-        client = genai.Client(api_key=api_key)
-        
         base_role = get_role_for_category(category_name)
         
         user_request = f"""
@@ -128,14 +138,15 @@ YÊU CẦU PROMPT:
 4. Tối ưu SEO với từ khóa
 5. Tích hợp thương hiệu "{brand_name}" tự nhiên
 6. Output BẮT BUỘC là JSON: {{"title": "...", "excerpt": "...", "content": "HTML..."}}
-7. BẮT BUỘC giữ nguyên 2 placeholder: {{keyword}} và {{content}}
+7. BẮT BUỘC giữ nguyên 2 placeholder: {{{{keyword}}}} và {{{{content}}}}
 
 Trả về prompt hoàn chỉnh, sẵn sàng sử dụng.
 """
 
-        candidate_models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
-        
-        for model_name in candidate_models:
+        # Gemini models
+        if model_name.startswith("gemini"):
+            client = genai.Client(api_key=api_key)
+            
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -147,7 +158,40 @@ Trả về prompt hoàn chỉnh, sẵn sàng sử dụng.
                 )
                 return response.text.strip()
             except Exception as e:
-                continue
+                # Fallback to other Gemini model
+                fallback_model = 'gemini-2.5-flash' if model_name == 'gemini-2.5-pro' else 'gemini-2.5-pro'
+                try:
+                    response = client.models.generate_content(
+                        model=fallback_model,
+                        contents=user_request,
+                        config=types.GenerateContentConfig(
+                            temperature=0.7,
+                            max_output_tokens=3000,
+                        )
+                    )
+                    return response.text.strip()
+                except:
+                    pass
+        
+        # Claude models
+        elif model_name.startswith("claude"):
+            try:
+                import anthropic
+                client = anthropic.Anthropic(api_key=api_key)
+                
+                response = client.messages.create(
+                    model=model_name,
+                    max_tokens=3000,
+                    temperature=0.7,
+                    messages=[
+                        {"role": "user", "content": user_request}
+                    ]
+                )
+                return response.content[0].text.strip()
+            except ImportError:
+                return "⚠️ Cần cài đặt: pip install anthropic"
+            except Exception as e:
+                return f"Lỗi Claude: {str(e)}"
         
         # Fallback: Trả về prompt mặc định
         return generate_prompt_for_category(category_name, brand_name)
@@ -159,6 +203,7 @@ Trả về prompt hoàn chỉnh, sẵn sàng sử dụng.
 with st.sidebar:
     st.header("1. API Keys & Search")
     gemini_key = st.text_input("Gemini API Key", type="password", value=os.getenv("GEMINI_API_KEY", ""))
+    claude_key = st.text_input("Anthropic API Key (cho Claude)", type="password", value=os.getenv("ANTHROPIC_API_KEY", ""), help="Dùng cho tạo prompt với Claude")
     google_api_key = st.text_input("Google API Key", type="password")
     google_cse_id = st.text_input("Search Engine ID")
     
@@ -170,6 +215,18 @@ with st.sidebar:
     st.header("3. Thương hiệu")
     brand_name = st.text_input("Tên thương hiệu", value=st.session_state['brand_name'])
     st.session_state['brand_name'] = brand_name
+    
+    st.header("4. Model AI")
+    preferred_model = st.selectbox(
+        "Chọn model cho nội dung:",
+        options=["gemini-2.5-flash", "gemini-2.5-pro"],
+        index=0,
+        help="💡 Flash: Nhanh, rẻ | Pro: Chất lượng cao hơn, chậm hơn"
+    )
+    if 'preferred_model' not in st.session_state:
+        st.session_state['preferred_model'] = preferred_model
+    else:
+        st.session_state['preferred_model'] = preferred_model
     
     if st.button("🔄 Kết nối & Tải Chuyên mục", use_container_width=True):
         if wp_url and wp_pass:
@@ -221,14 +278,33 @@ else:
                 st.session_state['cat_prompts'][target_cat_name] = generated
                 st.rerun()
             
-            if st.button("🤖 Nhờ Gemini viết", use_container_width=True, type="primary"):
-                if not gemini_key:
-                    st.error("Thiếu Gemini API Key!")
-                else:
-                    with st.spinner("Gemini đang tạo prompt..."):
-                        generated = generate_prompt_with_gemini(gemini_key, target_cat_name, brand_name)
-                        st.session_state['cat_prompts'][target_cat_name] = generated
-                        st.rerun()
+            # Model selection for prompt generation
+            st.markdown("**Chọn model tạo prompt:**")
+            prompt_model = st.selectbox(
+                "Model AI:",
+                options=["gemini-2.5-flash", "gemini-2.5-pro", "claude-3-5-sonnet"],
+                index=0,
+                key="prompt_model_select",
+                help="💡 Gemini: Nhanh | Claude: Sáng tạo hơn"
+            )
+            
+            if st.button("🤖 Nhờ AI viết prompt", use_container_width=True, type="primary"):
+                if prompt_model.startswith("gemini"):
+                    if not gemini_key:
+                        st.error("Thiếu Gemini API Key!")
+                    else:
+                        with st.spinner(f"{prompt_model} đang tạo prompt..."):
+                            generated = generate_prompt_with_ai(gemini_key, target_cat_name, brand_name, prompt_model)
+                            st.session_state['cat_prompts'][target_cat_name] = generated
+                            st.rerun()
+                elif prompt_model.startswith("claude"):
+                    if not claude_key:
+                        st.error("Thiếu Anthropic API Key! Vui lòng nhập ở sidebar.")
+                    else:
+                        with st.spinner(f"{prompt_model} đang tạo prompt..."):
+                            generated = generate_prompt_with_ai(claude_key, target_cat_name, brand_name, prompt_model)
+                            st.session_state['cat_prompts'][target_cat_name] = generated
+                            st.rerun()
         
         with col2:
             current_prompt = st.session_state['cat_prompts'].get(target_cat_name, "")
@@ -316,6 +392,7 @@ else:
                 env['WP_CATEGORY_ID'] = str(selected_cat_id)
                 env['BRAND_NAME'] = brand_name
                 env['CATEGORY_NAME'] = run_cat_name  # Truyền tên danh mục để prompt hiểu context
+                env['PREFERRED_MODEL'] = st.session_state.get('preferred_model', 'gemini-2.5-flash')
                 
                 if active_prompt:
                     env['CHOSEN_PROMPT'] = active_prompt

@@ -24,19 +24,15 @@ SECONDARY_MIN_BOUND = 3
 SECONDARY_MAX_BOUND = 10
 
 WORD_COUNT_DISTRIBUTION = {
-    'very_short': 10,
-    'short': 20,
-    'balanced': 40,
-    'long': 20,
-    'very_long': 10
+    'short': 30,        # 30% bài: 1200-1400 từ
+    'balanced': 50,     # 50% bài: 1400-1600 từ
+    'long': 20          # 20% bài: 1600-1800 từ
 }
 
 WORD_COUNT_RANGES = {
-    'very_short': {'min': 800, 'max': 1100},
-    'short': {'min': 1100, 'max': 1400},
-    'balanced': {'min': 1400, 'max': 1700},
-    'long': {'min': 1700, 'max': 2000},
-    'very_long': {'min': 2000, 'max': 2200}
+    'short': {'min': 1200, 'max': 1400},
+    'balanced': {'min': 1400, 'max': 1600},
+    'long': {'min': 1600, 'max': 1800}
 }
 
 DEFAULT_VARIATION_DISTRIBUTION = {
@@ -293,7 +289,7 @@ def get_category_config(category_name):
 
 
 def get_base_prompt_template():
-    """Base prompt template - will be customized per category"""
+    """Advanced SEO prompt template with web research and internal links support"""
     return """## VAI TRÒ
 {role_description}
 
@@ -310,23 +306,46 @@ Viết lại bài viết dưới đây thành bài viết **mới hoàn toàn**,
 ## CẤU TRÚC BÀI VIẾT
 
 ### TIÊU ĐỀ (H1)
-- Tự nhiên, hấp dẫn và phải chứa từ khóa chính `{keyword}`
+- Tự nhiên, hấp dẫn và phải chứa từ khóa chính
 
 ### CẤU TRÚC NỘI DUNG
-**Linh hoạt theo nội dung thực tế:**
-- **Mở đầu** (không tiêu đề): 2-3 câu giới thiệu, có thể nhắc đến {brand_name} tự nhiên
-- **Các phần chính** (H2): 4-7 phần, mỗi phần có nội dung thực chất
-- **Kết luận** (H2): Tổng kết, ý nghĩa, lời khuyên
 
-## PHONG CÁCH VIẾT
+**Không bắt buộc theo số phần cố định. Hãy linh hoạt theo nội dung thực tế:**
+- **Mở đầu** (không tiêu đề): 2-3 câu giới thiệu chính, nhắc đến {brand_name} tự nhiên
+- **Các phần chính** (H2): Tùy thuộc vào nội dung bài gốc
+  - Ít nhất 4-5 phần H2, nhiều nhất 7-8 phần
+  - Mỗi phần có nội dung thực chất, không viết cho có
+- **Kết luận** (H2): Tổng kết, ý nghĩa, lời khuyên hoặc kêu gọi
 
-**Nguyên Tắc: Viết Như Người Thật, Không Như AI**
+**Nguyên tắc quan trọng:** Cấu trúc phải phục vụ nội dung, không phải ngược lại. Viết những gì cần thiết, không viết những gì không cần.
 
-1. **Đa dạng độ dài đoạn văn** - Không viết đều đặn
-2. **Đa dạng câu văn** - Kết hợp câu ngắn và dài
-3. **Giọng văn chân thực** - Viết như kể chuyện cho bạn bè
+## PHONG CÁCH VIẾT - GIỌNG NGƯỜI THẬT
 
-**TUYỆT ĐỐI KHÔNG dùng:**
+**Nguyên Tắc Vàng: Viết Như Người, Không Như AI**
+
+**1. Sử dụng ngôn ngữ đời thường**
+- Viết bằng tiếng Việt tự nhiên, gần gũi
+- Tránh văn phong sách vở, cứng nhắc
+
+**2. Đa dạng độ dài đoạn văn**
+- Đoạn ngắn (1-2 câu): Tạo nhấn mạnh, chuyển ý
+- Đoạn trung bình (3-4 câu): Phần lớn bài viết
+- Đoạn dài (5-6 câu): Khi kể chuyện hoặc giải thích chi tiết
+- **Không viết đều đặn** - thay đổi nhịp điệu liên tục
+
+**3. Đa dạng câu văn**
+- Kết hợp câu ngắn (3-5 từ) và câu dài
+- Một vài câu bắt đầu bằng "Và", "Nhưng", "Còn" để tự nhiên
+- Đôi khi dùng câu đứt quãng. Tạo hiệu ứng.
+- Dùng gạch ngang — như thế này — cho ý phụ
+
+**4. Giọng văn chân thực**
+- Viết như đang kể chuyện cho bạn bè
+- Thể hiện cảm xúc qua chi tiết, không nói trực tiếp "đây là cảm động"
+- Dùng ví dụ cụ thể, không chung chung
+- Có quan điểm, có góc nhìn riêng
+
+**TUYỆT ĐỐI KHÔNG dùng các cụm từ sáo rỗng:**
 - "Trong thế giới ngày nay..."
 - "Không thể phủ nhận rằng..."
 - "Điều đáng nói là..."
@@ -335,18 +354,119 @@ Viết lại bài viết dưới đây thành bài viết **mới hoàn toàn**,
 - "giữa vô vàn..."
 - "rốt cuộc..."
 
-## YÊU CẦU SEO
+## NGHIÊN CỨU & XÁC MINH - QUAN TRỌNG NHẤT
 
-- Bài viết tối thiểu **{word_count} từ**
-- Từ khóa `{keyword}` xuất hiện **{primary_keyword_count} lần**, phân bố tự nhiên
-- Trong 100 từ đầu phải có từ khóa chính
-- Các H2 nên chứa biến thể của từ khóa
+### BẮT BUỘC: TÌM KIẾM ĐỂ BỔ SUNG & XÁC MINH
+
+**Sau khi đọc bài gốc, PHẢI tìm kiếm web để:**
+1. Xác minh thông tin trong bài gốc (đặc biệt con số, tên riêng, ngày tháng)
+2. Bổ sung chi tiết thiếu (nếu cần và phù hợp)
+3. Tìm góc nhìn, bối cảnh rộng hơn
+
+### QUY TẮC VÀNG: AN TOÀN HƠN LÀ SAI LẦM
+
+**✅ AN TOÀN ĐỂ BỔ SUNG:**
+- Thông tin từ nguồn uy tín, chính thống
+- Dữ liệu được nhiều nguồn xác nhận
+- Sự kiện lịch sử, công khai
+- Thống kê, nghiên cứu đã công bố
+- Giải thưởng, thành tích được công nhận
+
+**❌ TUYỆT ĐỐI KHÔNG BỔ SUNG:**
+- Thông tin chỉ có 1 nguồn duy nhất
+- Tin đồn, lời đồn, suy đoán
+- Chi tiết nhạy cảm không có trong bài gốc
+- Thông tin mâu thuẫn giữa các nguồn
+- Dữ liệu không có nguồn rõ ràng
+
+**⚠️ XÁC MINH ĐỒNG BỘ - KIỂM TRA CHÉO:**
+
+Khi tìm được thông tin từ web, phải đảm bảo:
+- Tên, đối tượng CHÍNH XÁC khớp với bài gốc
+- Thời gian, địa điểm phù hợp
+- Bối cảnh không mâu thuẫn
+- Ít nhất 2-3 nguồn uy tín xác nhận
+
+**Nếu nghi ngờ 1% → Bỏ qua thông tin đó**
+
+### THỨ TỰ ƯU TIÊN NGUỒN
+
+**Đáng tin cậy (ưu tiên sử dụng):**
+1. Website chính thức của tổ chức, cơ quan
+2. Báo chí uy tín: VnExpress, Tuổi Trẻ, Thanh Niên, BBC, CNN...
+3. Tạp chí chuyên ngành có uy tín
+4. Nghiên cứu khoa học, báo cáo chính thức
+5. Chuyên gia được công nhận trong lĩnh vực
+
+**Không sử dụng:**
+- Blog cá nhân không rõ nguồn gốc
+- Diễn đàn, hỏi đáp chưa xác minh
+- Website giật gân, câu view
+- Mạng xã hội cá nhân (trừ khi là người nổi tiếng xác minh)
+- Wikipedia (có thể tham khảo nhưng phải kiểm tra nguồn gốc)
+
+### XỬ LÝ THÔNG TIN THIẾU HOẶC KHÔNG RÕ
+
+**Khi bài gốc thiếu thông tin quan trọng:**
+- Tìm kiếm để bổ sung (nếu an toàn)
+- Nếu không tìm được nguồn tin cậy: Viết "Thông tin về... hiện chưa được công bố rộng rãi"
+- KHÔNG đoán, KHÔNG bịa, KHÔNG suy luận
+
+**Khi thông tin mâu thuẫn giữa các nguồn:**
+- Nêu cả hai quan điểm (nếu cần)
+- Ưu tiên nguồn chính thức hơn
+- Hoặc bỏ qua thông tin đó nếu không chắc chắn
+
+## TĂNG CƯỜNG CHIỀU SÂU NỘI DUNG
+
+- Mục tiêu là **viết lại và mở rộng**, không chỉ diễn đạt lại.
+- Mỗi phần nội dung nên **phong phú hơn ít nhất 20–40%** so với bài gốc.
+- Có thể thêm:
+  - Bối cảnh nền
+  - Phân tích, so sánh, hoặc phản ứng từ cộng đồng / giới chuyên môn
+  - Thông tin bổ trợ từ nguồn uy tín
+- Không chèn đoạn "vô nghĩa" để kéo dài.
+- Mỗi H2 cần ít nhất 2 đoạn văn hoàn chỉnh (từ 80–120 từ/đoạn).
+
+## TỐI ƯU SEO & TỪ KHÓA
+
+**Yêu cầu về độ dài:**
+- Bài viết phải đạt tối thiểu **{word_count} từ** (không bao gồm tiêu đề)
+- Nếu nội dung bài gốc ngắn, bổ sung thêm phân tích, bối cảnh, hoặc thông tin liên quan từ nghiên cứu web
+
+**Yêu cầu về từ khóa:**
+- Tiêu đề (H1) phải rõ ràng, có từ khóa chính `{keyword}`
+- Từ khóa chính phải xuất hiện **ít nhất {primary_keyword_count} lần** trong toàn bài
+- Trong 100 từ đầu tiên, xuất hiện ít nhất 1 lần từ khóa chính
+- Các tiêu đề H2/H3 nên chứa biến thể của từ khóa hoặc câu hỏi phổ biến
+- Không nhồi nhét từ khóa - phân bố tự nhiên trong bài
+- Sử dụng từ khóa trong anchor text của liên kết nội bộ (nếu có)
 
 ## TÍCH HỢP THƯƠNG HIỆU
 
-- Nhắc `{brand_name}` 1-2 lần ở mở đầu hoặc kết bài
-- Ví dụ: "Theo tổng hợp từ {brand_name}..." hoặc "Bài viết được biên soạn bởi {brand_name}..."
-- KHÔNG quảng cáo, PR
+**Thương hiệu:** `{brand_name}`
+
+**Cách sử dụng:**
+- Tự nhiên đề cập đến thương hiệu `{brand_name}` trong bài viết, như một **nguồn biên soạn, nền tảng xuất bản, hoặc đơn vị cung cấp thông tin**.
+- Chỉ nhắc thương hiệu 1–2 lần trong toàn bài, ở các vị trí hợp lý:
+  - 1 lần trong **phần mở đầu hoặc kết bài**, ví dụ:
+    - ✅ "Theo dữ liệu tổng hợp từ {brand_name}, …"
+    - ✅ "Bài viết được biên soạn bởi {brand_name}, nhằm mang đến cái nhìn toàn diện về chủ đề."
+  - Không chèn trong phần giữa trừ khi thực sự liên quan.
+- Không sử dụng thương hiệu theo cách quảng cáo hoặc PR.
+  Ví dụ:
+  - ❌ "Hãy truy cập {brand_name} để biết thêm."
+  - ❌ "Sản phẩm tuyệt vời của {brand_name}."
+
+## TÍNH NHẤT QUÁN & CHẤT LƯỢNG
+
+- Mỗi phần H2 có tối thiểu 2 đoạn văn, không để phần rỗng
+- Giữ mạch thông tin liền lạc, tránh lặp ý giữa các phần
+- Không dùng danh sách bullet quá dài (tối đa 5 mục)
+- Kiểm tra để đảm bảo bài viết không có lỗi chính tả hoặc ngữ pháp
+- Đảm bảo đạt đủ **{word_count} từ** và **{primary_keyword_count} lần từ khóa chính**
+
+[internal_links]
 
 ## ĐỊNH DẠNG OUTPUT
 
