@@ -1,373 +1,260 @@
+"""
+Auto Content Pro Dashboard - V3 Clean Version
+Only uses V3 Universal System
+
+File: dashboard.py
+"""
+
 import streamlit as st
-import subprocess
 import os
+import subprocess
 import sys
-import pandas as pd
 import time
+from pathlib import Path
 import requests
-from google import genai
-from google.genai import types
 from requests.auth import HTTPBasicAuth
 
-st.set_page_config(page_title="Auto Content Pro (Free Version)", layout="wide")
-st.title("🚀 Auto Content Pro: All-in-One (Gemini Powered)")
+# Page config
+st.set_page_config(
+    page_title="Auto Content Pro - V3",
+    page_icon="🚀",
+    layout="wide"
+)
 
-# --- IMPORTS TỪ BACKEND ---
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+# Custom CSS
+st.markdown("""
+<style>
+    .stButton>button {
+        width: 100%;
+    }
+    .success-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    .error-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-try:
-    from backend.prompt_config import CATEGORY_CONFIGS
-    # Tạo CATEGORY_ROLES từ config
-    CATEGORY_ROLES = {k: v['role'] for k, v in CATEGORY_CONFIGS.items()}
-except ImportError:
-    st.error("❌ Không thể import prompt_config.py từ backend!")
-    CATEGORY_ROLES = {"default": "Bạn là chuyên gia viết bài chuẩn SEO."}
+# Title
+st.title("🚀 Auto Content Pro - V3 Universal")
+st.markdown("**V3 CLEAN** - Tự động adapt với mọi niche")
 
-# --- PROMPT MẪU CHUYÊN NGHIỆP (Theo chuẩn vnrewrite) ---
-DEFAULT_PROMPT_TEMPLATE = """
-## VAI TRÒ
-{role_description}
+# Initialize session state
+if 'is_connected' not in st.session_state:
+    st.session_state['is_connected'] = False
+if 'wp_categories' not in st.session_state:
+    st.session_state['wp_categories'] = {}
 
-## NHIỆM VỤ
-Viết lại bài viết dưới đây thành bài viết **mới hoàn toàn**, chuẩn SEO, hấp dẫn người đọc.
+# ============================================================
+# SIDEBAR - Configuration
+# ============================================================
 
-## TỪ KHÓA CHÍNH
-`{keyword}`
-
-## THƯƠNG HIỆU
-`{brand_name}`
-
-## YÊU CẦU NỘI DUNG
-
-### CẤU TRÚC BÀI VIẾT
-- **Tiêu đề (H1)**: Tự nhiên, hấp dẫn, chứa từ khóa chính
-- **Mở đầu** (2-3 câu): Giới thiệu vấn đề, nhắc đến thương hiệu tự nhiên
-- **Các phần chính (H2)**: 4-7 phần, mỗi phần có nội dung thực chất
-- **Kết luận (H2)**: Tổng kết, ý nghĩa
-
-### PHONG CÁCH VIẾT
-- Viết như người thật, không như AI
-- Đa dạng độ dài đoạn văn (ngắn 1-2 câu, trung bình 3-4 câu, dài 5-6 câu)
-- Giọng văn chân thực, kể chuyện cho bạn bè
-- Dùng ví dụ cụ thể, có quan điểm riêng
-- KHÔNG dùng các cụm từ sáo rỗng: "Trong thế giới...", "Không thể phủ nhận...", "Điều đáng nói là..."
-
-### TỐI ƯU SEO
-- Từ khóa chính xuất hiện ít nhất 5-7 lần, phân bố tự nhiên
-- Trong 100 từ đầu tiên phải có từ khóa chính
-- Các tiêu đề H2 nên chứa biến thể của từ khóa
-- Bài viết tối thiểu 800 từ
-
-### TÍCH HỢP THƯƠNG HIỆU
-- Nhắc thương hiệu 1-2 lần ở mở đầu hoặc kết bài
-- Ví dụ: "Theo tổng hợp từ {brand_name}..." hoặc "Bài viết được biên soạn bởi {brand_name}..."
-- KHÔNG quảng cáo, PR
-
-## ĐỊNH DẠNG OUTPUT
-Trả về **DUY NHẤT** JSON với cấu trúc sau (không có text nào khác):
-```json
-{{
-    "title": "Tiêu đề bài viết (có từ khóa)",
-    "excerpt": "Mô tả ngắn 150-160 ký tự cho SEO",
-    "content": "<p>Nội dung HTML đầy đủ với các thẻ h2, h3, p, ul, li...</p>"
-}}
-```
-
-## NỘI DUNG GỐC CẦN VIẾT LẠI
-{content}
-"""
-
-# --- VAI TRÒ MẶC ĐỊNH ---
-DEFAULT_ROLE = "Với tư cách là nhà sáng tạo nội dung chuyên nghiệp, bạn có khả năng viết bài hấp dẫn, chuẩn SEO và phù hợp với độc giả Việt Nam."
-
-# Session state để lưu vai trò tùy chỉnh cho từng danh mục
-if 'category_roles' not in st.session_state:
-    st.session_state['category_roles'] = {}
-
-def get_role_for_category(category_name):
-    """Lấy vai trò cho danh mục - ưu tiên custom, sau đó đến default config"""
-    # 1. Check custom override in session_state
-    if 'category_roles' in st.session_state and category_name in st.session_state['category_roles']:
-        return st.session_state['category_roles'][category_name]
-
-    # 2. Check predefined roles from prompt_config
-    for key, role in CATEGORY_ROLES.items():
-        if key.lower() in category_name.lower():
-            return role
-            
-    # 3. Fallback
-    return CATEGORY_ROLES.get("default", DEFAULT_ROLE)
-
-# --- KHỞI TẠO STATE ---
-if 'wp_categories' not in st.session_state: st.session_state['wp_categories'] = {}
-if 'is_connected' not in st.session_state: st.session_state['is_connected'] = False
-if 'cat_prompts' not in st.session_state: st.session_state['cat_prompts'] = {}
-if 'brand_name' not in st.session_state: st.session_state['brand_name'] = "VanGioiComics"
-
-def generate_prompt_for_category(category_name, brand_name):
-    """Tạo prompt hoàn chỉnh cho danh mục"""
-    role = get_role_for_category(category_name)
-    
-    prompt = DEFAULT_PROMPT_TEMPLATE.replace("{role_description}", role)
-    prompt = prompt.replace("{brand_name}", brand_name)
-    # Giữ nguyên {keyword} và {content} để pipeline thay thế sau
-    
-    return prompt
-
-def generate_prompt_with_ai(api_key, category_name="", brand_name="", model_name="gemini-2.5-flash"):
-    """Dùng AI (Gemini hoặc Claude) để tạo prompt tùy chỉnh"""
-    if not api_key:
-        return "⚠️ Chưa có API Key!"
-    
-    try:
-        base_role = get_role_for_category(category_name)
-        
-        user_request = f"""
-Bạn là chuyên gia Prompt Engineering. Hãy tạo một System Prompt chuyên nghiệp để viết lại bài viết.
-
-THÔNG TIN:
-- Danh mục: {category_name}
-- Thương hiệu: {brand_name}
-- Vai trò gợi ý: {base_role}
-
-YÊU CẦU PROMPT:
-1. Bắt đầu bằng phần VAI TRÒ chi tiết, phù hợp với danh mục "{category_name}"
-2. Có hướng dẫn cấu trúc bài viết (H1, H2, mở đầu, kết luận)
-3. Yêu cầu phong cách viết tự nhiên như người thật
-4. Tối ưu SEO với từ khóa
-5. Tích hợp thương hiệu "{brand_name}" tự nhiên
-6. Output BẮT BUỘC là JSON: {{"title": "...", "excerpt": "...", "content": "HTML..."}}
-7. BẮT BUỘC giữ nguyên 2 placeholder: {{{{keyword}}}} và {{{{content}}}}
-
-Trả về prompt hoàn chỉnh, sẵn sàng sử dụng.
-"""
-
-        # Gemini models
-        if model_name.startswith("gemini"):
-            client = genai.Client(api_key=api_key)
-            
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=user_request,
-                    config=types.GenerateContentConfig(
-                        temperature=0.7,
-                        max_output_tokens=3000,
-                    )
-                )
-                return response.text.strip()
-            except Exception as e:
-                # Fallback to other Gemini model
-                fallback_model = 'gemini-2.5-flash' if model_name == 'gemini-2.5-pro' else 'gemini-2.5-pro'
-                try:
-                    response = client.models.generate_content(
-                        model=fallback_model,
-                        contents=user_request,
-                        config=types.GenerateContentConfig(
-                            temperature=0.7,
-                            max_output_tokens=3000,
-                        )
-                    )
-                    return response.text.strip()
-                except:
-                    pass
-        
-        # Claude models
-        elif model_name.startswith("claude"):
-            try:
-                import anthropic
-                client = anthropic.Anthropic(api_key=api_key)
-                
-                response = client.messages.create(
-                    model=model_name,
-                    max_tokens=3000,
-                    temperature=0.7,
-                    messages=[
-                        {"role": "user", "content": user_request}
-                    ]
-                )
-                return response.content[0].text.strip()
-            except ImportError:
-                return "⚠️ Cần cài đặt: pip install anthropic"
-            except Exception as e:
-                return f"Lỗi Claude: {str(e)}"
-        
-        # Fallback: Trả về prompt mặc định
-        return generate_prompt_for_category(category_name, brand_name)
-
-    except Exception as e:
-        return f"Lỗi: {str(e)}"
-
-# --- SIDEBAR: CẤU HÌNH ---
 with st.sidebar:
     st.header("1. API Keys & Search")
-    gemini_key = st.text_input("Gemini API Key", type="password", value=os.getenv("GEMINI_API_KEY", ""))
-    claude_key = st.text_input("Anthropic API Key (cho Claude)", type="password", value=os.getenv("ANTHROPIC_API_KEY", ""), help="Dùng cho tạo prompt với Claude")
-    google_api_key = st.text_input("Google API Key", type="password")
-    google_cse_id = st.text_input("Search Engine ID")
+    
+    gemini_key = st.text_input(
+        "Gemini API Key",
+        type="password",
+        value=os.getenv("GEMINI_API_KEY", ""),
+        help="Get from: https://aistudio.google.com/app/apikey"
+    )
+    
+    google_api_key = st.text_input(
+        "Google API Key",
+        type="password",
+        help="Get from: https://console.cloud.google.com/"
+    )
+    
+    google_cse_id = st.text_input(
+        "Search Engine ID",
+        help="Get from: https://programmablesearchengine.google.com/"
+    )
     
     st.header("2. Kết nối WordPress")
-    wp_url = st.text_input("WP URL", value="https://vangioicomics.com/wp-json/wp/v2")
-    wp_user = st.text_input("WP User", value="admin")
-    wp_pass = st.text_input("WP App Pass", type="password")
+    
+    wp_url = st.text_input(
+        "WP URL",
+        value="https://yoursite.com/wp-json/wp/v2",
+        help="WordPress REST API endpoint"
+    )
+    
+    wp_user = st.text_input(
+        "WP User",
+        value="admin"
+    )
+    
+    wp_pass = st.text_input(
+        "WP App Pass",
+        type="password",
+        help="Application Password (not regular password)"
+    )
     
     st.header("3. Thương hiệu")
-    brand_name = st.text_input("Tên thương hiệu", value=st.session_state['brand_name'])
+    
+    brand_name = st.text_input(
+        "Tên thương hiệu",
+        value=st.session_state.get('brand_name', 'YourBrand'),
+        help="Tên brand sẽ xuất hiện trong nội dung"
+    )
     st.session_state['brand_name'] = brand_name
     
     st.header("4. Model AI")
+    
     preferred_model = st.selectbox(
-        "Chọn model cho nội dung:",
+        "Chọn model:",
         options=["gemini-2.5-flash", "gemini-2.5-pro"],
         index=0,
-        help="💡 Flash: Nhanh, rẻ | Pro: Chất lượng cao hơn, chậm hơn"
+        help="💡 Flash: Nhanh, rẻ (~$0.002/request) | Pro: Chất lượng cao (~$0.02/request)"
     )
-    if 'preferred_model' not in st.session_state:
-        st.session_state['preferred_model'] = preferred_model
-    else:
-        st.session_state['preferred_model'] = preferred_model
+    st.session_state['preferred_model'] = preferred_model
+    
+    st.header("5. V3 Universal System")
+    
+    st.success("✨ V3 CLEAN - Chỉ dùng Universal System")
+    
+    with st.expander("⚙️ Cấu hình V3 (Lần đầu tiên)", expanded=True):
+        st.markdown("""
+        **V3 cần hiểu website của bạn:**
+        - **Mô tả**: 1 câu ngắn về niche
+        - **Sample keywords**: 3-5 keywords đại diện
+        
+        **Chỉ cần nhập 1 lần**, V3 sẽ tự động cache!
+        """)
+        
+        site_description = st.text_input(
+            "Mô tả website",
+            placeholder="VD: Website review smartphone và công nghệ",
+            help="1 câu ngắn mô tả niche của bạn"
+        )
+        
+        sample_keywords_input = st.text_area(
+            "Sample Keywords (3-5 keywords)",
+            placeholder="iPhone 15 Pro Max\nSamsung Galaxy S24\nXiaomi 14",
+            help="Mỗi dòng 1 keyword. V3 sẽ học từ những keywords này.",
+            height=100
+        )
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Reset Cache", help="Xóa cache để V3 học lại từ đầu"):
+                import shutil
+                try:
+                    shutil.rmtree('profiles')
+                    st.success("✅ Cache cleared!")
+                except:
+                    st.info("No cache to clear")
+        
+        with col2:
+            if os.path.exists('profiles'):
+                st.info(f"📦 Cache exists")
+            else:
+                st.warning("⚠️ No cache")
+        
+        st.info("💡 **Tip:** Sample keywords giúp V3 hiểu niche nhanh hơn. Không bắt buộc nhưng khuyến nghị.")
+    
+    st.divider()
     
     if st.button("🔄 Kết nối & Tải Chuyên mục", use_container_width=True):
-        if wp_url and wp_pass:
+        if not wp_url or not wp_pass:
+            st.error("❌ Thiếu WP URL hoặc App Password!")
+        else:
             try:
-                auth = HTTPBasicAuth(wp_user, wp_pass)
-                res = requests.get(f"{wp_url}/categories?per_page=100", auth=auth, timeout=10)
-                if res.status_code == 200:
-                    st.session_state['wp_categories'] = {i['name']: i['id'] for i in res.json()}
-                    st.session_state['is_connected'] = True
-                    st.success(f"✅ Đã tải {len(res.json())} chuyên mục!")
-                else: 
-                    st.error(f"Lỗi kết nối: {res.status_code}")
-            except Exception as e: 
-                st.error(str(e))
+                with st.spinner("Đang kết nối..."):
+                    auth = HTTPBasicAuth(wp_user, wp_pass)
+                    res = requests.get(
+                        f"{wp_url}/categories?per_page=100", 
+                        auth=auth, 
+                        timeout=10
+                    )
+                    
+                    if res.status_code == 200:
+                        categories = res.json()
+                        st.session_state['wp_categories'] = {
+                            cat['name']: cat['id'] for cat in categories
+                        }
+                        st.session_state['is_connected'] = True
+                        st.success(f"✅ Loaded {len(categories)} categories!")
+                    else:
+                        st.error(f"❌ Connection error: HTTP {res.status_code}")
+                        st.error(res.text[:500])
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
 
-# --- GIAO DIỆN CHÍNH ---
-if not st.session_state['is_connected']:
-    st.info("👋 Chào bạn! Hãy nhập thông tin bên trái và bấm **KẾT NỐI** để bắt đầu.")
-    
-    st.markdown("---")
-    st.subheader("📋 Hướng dẫn nhanh")
-    st.markdown("""
-    1. **Gemini API Key**: Lấy từ [Google AI Studio](https://aistudio.google.com/apikey)
-    2. **Google API Key + CSE ID**: Để tìm kiếm bài viết gốc
-    3. **WP App Pass**: Tạo trong WordPress > Users > Application Passwords
-    """)
+# ============================================================
+# MAIN CONTENT
+# ============================================================
+
+# Connection status
+if st.session_state['is_connected']:
+    st.success("✅ Đã kết nối WordPress")
 else:
-    # TẠO 3 TAB CHÍNH
-    tab_run, tab_prompt, tab_settings = st.tabs(["🚀 Chạy", "✨ Quản lý Prompt", "⚙️ Cài đặt"])
+    st.warning("⚠️ Chưa kết nối WordPress. Vui lòng cấu hình ở sidebar.")
 
-    # === TAB QUẢN LÝ PROMPT ===
-    with tab_prompt:
-        st.subheader("Quản lý Prompt theo Danh mục")
-        
-        col1, col2 = st.columns([1, 2])
+# Tabs
+tab1, tab2, tab3 = st.tabs(["🚀 Chạy", "📊 Stats", "ℹ️ Hướng dẫn"])
+
+# ============================================================
+# TAB 1: RUN
+# ============================================================
+
+with tab1:
+    st.header("🚀 Chạy Auto Content")
+    
+    if not st.session_state['is_connected']:
+        st.error("❌ Chưa kết nối WordPress! Vui lòng kết nối ở sidebar trước.")
+    else:
+        col1, col2 = st.columns(2)
         
         with col1:
-            target_cat_name = st.selectbox(
-                "Chọn danh mục:", 
-                list(st.session_state['wp_categories'].keys()),
-                key="prompt_cat_select"
+            selected_category = st.selectbox(
+                "Chọn danh mục WordPress:",
+                options=list(st.session_state['wp_categories'].keys()),
+                help="Danh mục để đăng bài"
             )
-            
-            st.markdown("---")
-            st.markdown("**Tạo prompt nhanh:**")
-            
-            if st.button("📝 Tạo từ mẫu có sẵn", use_container_width=True):
-                generated = generate_prompt_for_category(target_cat_name, brand_name)
-                st.session_state['cat_prompts'][target_cat_name] = generated
-                st.rerun()
-            
-            # Model selection for prompt generation
-            st.markdown("**Chọn model tạo prompt:**")
-            prompt_model = st.selectbox(
-                "Model AI:",
-                options=["gemini-2.5-flash", "gemini-2.5-pro", "claude-3-5-sonnet"],
-                index=0,
-                key="prompt_model_select",
-                help="💡 Gemini: Nhanh | Claude: Sáng tạo hơn"
-            )
-            
-            if st.button("🤖 Nhờ AI viết prompt", use_container_width=True, type="primary"):
-                if prompt_model.startswith("gemini"):
-                    if not gemini_key:
-                        st.error("Thiếu Gemini API Key!")
-                    else:
-                        with st.spinner(f"{prompt_model} đang tạo prompt..."):
-                            generated = generate_prompt_with_ai(gemini_key, target_cat_name, brand_name, prompt_model)
-                            st.session_state['cat_prompts'][target_cat_name] = generated
-                            st.rerun()
-                elif prompt_model.startswith("claude"):
-                    if not claude_key:
-                        st.error("Thiếu Anthropic API Key! Vui lòng nhập ở sidebar.")
-                    else:
-                        with st.spinner(f"{prompt_model} đang tạo prompt..."):
-                            generated = generate_prompt_with_ai(claude_key, target_cat_name, brand_name, prompt_model)
-                            st.session_state['cat_prompts'][target_cat_name] = generated
-                            st.rerun()
         
         with col2:
-            current_prompt = st.session_state['cat_prompts'].get(target_cat_name, "")
-            
-            if current_prompt:
-                st.success(f"✅ Đã có prompt cho: {target_cat_name}")
-            else:
-                st.warning("⚠️ Chưa có prompt. Nhấn 'Tạo từ mẫu' hoặc 'Nhờ Gemini viết'.")
-                current_prompt = generate_prompt_for_category(target_cat_name, brand_name)
-            
-            edited_prompt = st.text_area(
-                "Nội dung Prompt (có thể chỉnh sửa):",
-                value=current_prompt,
-                height=500,
-                key=f"prompt_editor_{target_cat_name}"
-            )
-            
-            if st.button("💾 Lưu Prompt", use_container_width=True):
-                st.session_state['cat_prompts'][target_cat_name] = edited_prompt
-                st.success(f"✅ Đã lưu prompt cho {target_cat_name}!")
-
-    # === TAB CHẠY ===
-    with tab_run:
-        col1, col2 = st.columns([1, 1])
+            selected_cat_id = st.session_state['wp_categories'].get(selected_category, 0)
+            st.info(f"📁 Category ID: {selected_cat_id}")
+        
+        st.subheader("Nhập Keywords")
+        
+        keywords_input = st.text_area(
+            "Keywords (mỗi dòng 1 keyword)",
+            placeholder="iPhone 15 Pro Max\nSamsung Galaxy S24\nXiaomi 14 Ultra",
+            height=200,
+            help="Mỗi dòng 1 keyword. V3 sẽ tự động phân tích và tạo prompt phù hợp."
+        )
+        
+        keywords = [k.strip() for k in keywords_input.split('\n') if k.strip()]
+        
+        if keywords:
+            st.info(f"📝 Tổng số keywords: **{len(keywords)}**")
+        
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("1. Chọn danh mục đăng")
-            run_cat_name = st.selectbox(
-                "Đăng vào:", 
-                list(st.session_state['wp_categories'].keys()), 
-                key="run_cat_select"
-            )
-            selected_cat_id = st.session_state['wp_categories'][run_cat_name]
-            
-            # Kiểm tra prompt
-            active_prompt = st.session_state['cat_prompts'].get(run_cat_name)
-            if active_prompt:
-                st.success(f"✅ Đã có Prompt cho: {run_cat_name}")
-                with st.expander("Xem prompt"):
-                    st.code(active_prompt[:500] + "..." if len(active_prompt) > 500 else active_prompt)
-            else:
-                st.warning("⚠️ Chưa có Prompt riêng, sẽ dùng mặc định.")
-                active_prompt = generate_prompt_for_category(run_cat_name, brand_name)
-
-        with col2:
-            st.subheader("2. Nhập từ khóa")
-            keywords_text = st.text_area(
-                "Danh sách Keyword (mỗi dòng 1 từ khóa):", 
-                height=200, 
-                placeholder="vạn cổ thần đế\nđấu phá thương khung\ntru tiên"
-            )
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                run_button = st.button("🔥 CHẠY NGAY", type="primary", use_container_width=True)
-            with col_btn2:
-                test_button = st.button("🧪 Test 1 keyword", use_container_width=True)
+            test_button = st.button("🧪 Test 1 keyword", use_container_width=True, type="secondary")
         
-        if run_button or test_button:
-            keywords = [k.strip() for k in keywords_text.split('\n') if k.strip()]
+        with col2:
+            run_button = st.button("▶️ CHẠY NGAY", use_container_width=True, type="primary")
+        
+        # Run logic
+        if test_button or run_button:
+            run_cat_name = selected_category
             
-            if test_button and keywords:
-                keywords = [keywords[0]]  # Chỉ lấy keyword đầu tiên
+            if test_button:
+                keywords = keywords[:1]  # Only first keyword for test
+                st.info(f"🧪 Test mode: Chỉ chạy keyword đầu tiên")
             
             if not keywords:
                 st.error("❌ Chưa nhập từ khóa!")
@@ -376,7 +263,8 @@ else:
             elif not google_api_key or not google_cse_id:
                 st.error("❌ Thiếu Google API Key hoặc CSE ID!")
             else:
-                st.info(f"🚀 Đang chạy {len(keywords)} keyword vào mục: {run_cat_name}")
+                st.info(f"🚀 Đang chạy {len(keywords)} keyword vào: **{run_cat_name}**")
+                
                 progress = st.progress(0)
                 status = st.empty()
                 log_container = st.container()
@@ -391,66 +279,266 @@ else:
                 env['WP_APP_PASSWORD'] = wp_pass
                 env['WP_CATEGORY_ID'] = str(selected_cat_id)
                 env['BRAND_NAME'] = brand_name
-                env['CATEGORY_NAME'] = run_cat_name  # Truyền tên danh mục để prompt hiểu context
+                env['CATEGORY_NAME'] = run_cat_name
                 env['PREFERRED_MODEL'] = st.session_state.get('preferred_model', 'gemini-2.5-flash')
                 
-                if active_prompt:
-                    env['CHOSEN_PROMPT'] = active_prompt
+                # V3 Configuration
+                if site_description:
+                    env['SITE_DESCRIPTION'] = site_description
                 
-                results = []
+                if sample_keywords_input:
+                    sample_kw_list = [k.strip() for k in sample_keywords_input.split('\n') if k.strip()]
+                    env['SAMPLE_KEYWORDS'] = ','.join(sample_kw_list)
+                
+                # Results tracking
+                success_count = 0
+                failed_keywords = []
+                
+                # Process each keyword
                 for idx, kw in enumerate(keywords):
-                    status.markdown(f"⏳ **Đang xử lý:** `{kw}` ({idx+1}/{len(keywords)})")
+                    status.info(f"⏳ Processing: **{kw}** ({idx+1}/{len(keywords)})")
                     
-                    cmd = [sys.executable, "-m", "scrapy", "crawl", "google_bot", "-a", f"keyword={kw}"]
-                    proc = subprocess.run(
-                        cmd, 
-                        cwd=os.path.join(os.getcwd(), 'backend'), 
-                        env=env, 
-                        capture_output=True, 
-                        text=True
-                    )
+                    env['KEYWORD'] = kw
                     
-                    if "DANG BAI THANH CONG" in proc.stderr:
-                        st.toast(f"✅ Thành công: {kw}")
-                        results.append({"Keyword": kw, "Status": "✅ Thành công", "Details": ""})
-                    else:
-                        st.toast(f"❌ Lỗi: {kw}")
-                        # Tìm lỗi cụ thể
-                        error_detail = ""
-                        if "Không tìm thấy kết quả" in proc.stderr:
-                            error_detail = "Không tìm thấy bài viết gốc"
-                        elif "AI Thất bại" in proc.stderr:
-                            error_detail = "AI không xử lý được"
-                        elif "403" in proc.stderr:
-                            error_detail = "Google API bị chặn"
+                    try:
+                        # Run scrapy
+                        cmd = [
+                            sys.executable, '-m', 'scrapy', 'crawl', 'google_bot',
+                            '-a', f'keyword={kw}',
+                            '-s', 'LOG_ENABLED=True',
+                            '-s', 'LOG_LEVEL=INFO'
+                        ]
+                        
+                        result = subprocess.run(
+                            cmd,
+                            cwd='backend',
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            timeout=180
+                        )
+                        
+                        # Display logs
+                        with log_container:
+                            with st.expander(f"📋 Log: {kw}", expanded=(idx == 0)):
+                                st.code(result.stdout + result.stderr, language='log')
+                        
+                        # Check success
+                        if 'PUBLISHED' in result.stdout or result.returncode == 0:
+                            success_count += 1
+                            status.success(f"✅ Success: **{kw}**")
                         else:
-                            error_detail = "Lỗi không xác định"
+                            failed_keywords.append(kw)
+                            status.error(f"❌ Failed: **{kw}**")
                         
-                        results.append({"Keyword": kw, "Status": "❌ Lỗi", "Details": error_detail})
+                        time.sleep(2)
                         
-                        with log_container.expander(f"📋 Log lỗi: {kw}"):
-                            st.code(proc.stderr[-2000:] if len(proc.stderr) > 2000 else proc.stderr)
+                    except subprocess.TimeoutExpired:
+                        failed_keywords.append(kw)
+                        status.error(f"⏱️ Timeout: **{kw}**")
+                    except Exception as e:
+                        failed_keywords.append(kw)
+                        status.error(f"❌ Error: **{kw}** - {str(e)}")
                     
-                    progress.progress((idx+1)/len(keywords))
-                    time.sleep(1)
+                    # Update progress
+                    progress.progress((idx + 1) / len(keywords))
                 
-                st.success("🎉 Hoàn tất!")
-                st.dataframe(pd.DataFrame(results), use_container_width=True)
+                # Final results
+                st.divider()
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("✅ Thành công", success_count)
+                
+                with col2:
+                    st.metric("❌ Thất bại", len(failed_keywords))
+                
+                with col3:
+                    success_rate = (success_count / len(keywords) * 100) if keywords else 0
+                    st.metric("📊 Tỷ lệ", f"{success_rate:.1f}%")
+                
+                if failed_keywords:
+                    with st.expander("❌ Keywords thất bại"):
+                        for kw in failed_keywords:
+                            st.write(f"- {kw}")
 
-    # === TAB CÀI ĐẶT ===
-    with tab_settings:
-        st.subheader("⚙️ Cài đặt nâng cao")
+# ============================================================
+# TAB 2: STATS
+# ============================================================
+
+with tab2:
+    st.header("📊 Thống kê")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("⚙️ System")
+        st.write(f"**Version:** V3 Clean")
+        st.write(f"**Model:** {preferred_model}")
+        st.write(f"**Brand:** {brand_name}")
         
-        st.markdown("### Danh sách vai trò mẫu")
-        st.markdown("Các vai trò này sẽ được sử dụng khi tạo prompt từ mẫu:")
+        if os.path.exists('profiles'):
+            import json
+            try:
+                profile_files = list(Path('profiles').glob('*_profile.json'))
+                if profile_files:
+                    with open(profile_files[0], 'r', encoding='utf-8') as f:
+                        profile = json.load(f)
+                        st.write(f"**Niche:** {profile.get('niche', 'N/A')}")
+                        st.write(f"**Sub-niche:** {profile.get('sub_niche', 'N/A')}")
+            except:
+                pass
+    
+    with col2:
+        st.subheader("💰 Cost Estimate")
         
-        for cat, role in CATEGORY_ROLES.items():
-            with st.expander(f"📁 {cat}"):
-                st.text_area(f"Vai trò cho {cat}", value=role, height=100, disabled=True)
+        cost_per_keyword = 0.006  # V3 average
         
-        st.markdown("---")
-        st.markdown("### Xóa dữ liệu")
-        if st.button("🗑️ Xóa tất cả Prompt đã lưu", type="secondary"):
-            st.session_state['cat_prompts'] = {}
-            st.success("Đã xóa tất cả prompt!")
-            st.rerun()
+        num_keywords = st.number_input("Số keywords/ngày:", min_value=1, value=50)
+        
+        daily_cost = num_keywords * cost_per_keyword
+        monthly_cost = daily_cost * 30
+        
+        st.metric("Chi phí/ngày", f"${daily_cost:.2f}")
+        st.metric("Chi phí/tháng", f"${monthly_cost:.2f}")
+
+# ============================================================
+# TAB 3: GUIDE
+# ============================================================
+
+with tab3:
+    st.header("ℹ️ Hướng dẫn V3 Universal")
+    
+    st.markdown("""
+    ## 🎯 V3 là gì?
+    
+    **V3 Universal** là hệ thống AI tự động phân tích và adapt với **mọi niche**:
+    - ✅ Tech review (smartphone, laptop...)
+    - ✅ Health & wellness (vitamin, yoga...)
+    - ✅ Finance (crypto, stocks...)
+    - ✅ Education (courses, tutorials...)
+    - ✅ Entertainment (movies, games...)
+    
+    **Không cần config thủ công!** V3 tự hiểu niche của bạn.
+    
+    ---
+    
+    ## 🚀 Quick Start
+    
+    ### Bước 1: Cấu hình API Keys (Sidebar)
+    
+    1. **Gemini API Key**: [Get here](https://aistudio.google.com/app/apikey)
+    2. **Google API Key**: [Get here](https://console.cloud.google.com/)
+    3. **Search Engine ID**: [Get here](https://programmablesearchengine.google.com/)
+    
+    ### Bước 2: Kết nối WordPress
+    
+    1. WP URL: `https://yoursite.com/wp-json/wp/v2`
+    2. WP User: `admin`
+    3. WP App Password: Tạo tại Users → Profile → Application Passwords
+    
+    ### Bước 3: Cấu hình V3 (Lần đầu tiên)
+    
+    1. **Mô tả website**: 1 câu ngắn
+       - VD: "Website review smartphone và công nghệ"
+    
+    2. **Sample keywords**: 3-5 keywords đại diện
+       - VD:
+         ```
+         iPhone 15 Pro Max
+         Samsung Galaxy S24
+         Xiaomi 14
+         ```
+    
+    3. Click **"Kết nối & Tải Chuyên mục"**
+    
+    ### Bước 4: Test
+    
+    1. Nhập 1 keyword test
+    2. Click **"🧪 Test 1 keyword"**
+    3. Kiểm tra log có: "✨ V3 Universal Generator ready"
+    4. Kiểm tra bài đăng trên WordPress
+    
+    ### Bước 5: Chạy Production
+    
+    1. Nhập 10-50 keywords
+    2. Click **"▶️ CHẠY NGAY"**
+    3. Chờ hoàn thành
+    
+    ---
+    
+    ## 💡 Tips
+    
+    ### Sample Keywords tốt
+    
+    ✅ Đa dạng và đại diện cho niche:
+    ```
+    iPhone 15 (flagship)
+    Redmi Note 13 (mid-range)
+    Samsung Galaxy A05 (budget)
+    ```
+    
+    ❌ Không đa dạng:
+    ```
+    iPhone 15
+    iPhone 15 Pro
+    iPhone 15 Pro Max
+    ```
+    
+    ### Reset Cache khi nào?
+    
+    - Đổi niche hoàn toàn
+    - V3 phân tích sai
+    - Muốn V3 học lại
+    
+    ---
+    
+    ## ❓ FAQ
+    
+    **Q: V3 có chậm hơn không?**  
+    A: Lần đầu: ~7s (phân tích website). Lần sau: ~3s (chỉ phân tích keyword)
+    
+    **Q: V3 có tốn thêm tiền không?**  
+    A: Có, thêm ~$0.004/keyword (2 API calls phân tích). Tổng: ~$0.006/keyword
+    
+    **Q: Sample keywords có bắt buộc không?**  
+    A: Không bắt buộc nhưng **khuyến nghị cao**. Giúp V3 hiểu niche nhanh hơn.
+    
+    **Q: Có thể dùng cho nhiều website không?**  
+    A: Có! Mỗi website sẽ có cache riêng.
+    
+    ---
+    
+    ## 🎓 Advanced
+    
+    ### Cache Location
+    
+    - `profiles/{site_id}_profile.json` - Website profile
+    - Xóa cache: Delete folder `profiles/`
+    
+    ### Environment Variables
+    
+    V3 sử dụng:
+    - `SITE_DESCRIPTION` - Mô tả website
+    - `SAMPLE_KEYWORDS` - Keywords mẫu (comma-separated)
+    
+    ### Model Selection
+    
+    - **gemini-2.5-flash**: Nhanh, rẻ, chất lượng tốt (khuyến nghị)
+    - **gemini-2.5-pro**: Chất lượng cao hơn, đắt hơn 10x
+    
+    ---
+    
+    ## 🆘 Support
+    
+    Nếu gặp vấn đề:
+    1. Check log chi tiết
+    2. Verify API keys
+    3. Test với 1 keyword đơn giản
+    4. Reset cache và thử lại
+    """)
+
+# Footer
+st.divider()
+st.caption("Auto Content Pro - V3 Universal System 🚀 | Made with ❤️")

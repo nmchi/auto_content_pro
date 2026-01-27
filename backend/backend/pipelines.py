@@ -1,139 +1,135 @@
 """
-Scrapy Pipelines - Optimized with vnrewrite-style prompt system
+Scrapy Pipelines - V3 Universal System ONLY
+Clean version - No V1, No V2, Only V3
+
+File: backend/backend/pipelines.py
 """
 
 import os
 import requests
 import json
 import time
-import random
 from google import genai
 from google.genai import types
 from scrapy.exceptions import DropItem
 
-# Import prompt configuration
+# V3: Universal Intelligent Generator (ONLY)
 try:
-    from backend.prompt_config import PromptConfig, build_final_prompt, get_role_for_category
+    from backend.universal_intelligent_generator import UniversalIntelligentGenerator
+    V3_AVAILABLE = True
 except ImportError:
-    # Fallback if running standalone
-    from prompt_config import PromptConfig, build_final_prompt, get_role_for_category
+    try:
+        from universal_intelligent_generator import UniversalIntelligentGenerator
+        V3_AVAILABLE = True
+    except ImportError:
+        V3_AVAILABLE = False
+        print("⚠️ V3 Universal Generator not found!")
 
 
 class AiGenerationPipeline:
     """
-    AI Generation Pipeline with vnrewrite-style prompt system
-    Features:
-    - Dynamic word count (800-2200 words, 5 tiers)
-    - Keyword density optimization
-    - A/B/C prompt variation
-    - Natural writing style enforcement
+    AI Generation Pipeline - V3 Universal System
+    
+    Chỉ sử dụng V3 Universal Intelligent Generator
+    Tự động adapt với mọi niche: tech, health, finance, education...
     """
     
     def __init__(self):
         self.client = None
-        self.prompt_config = None
+        self.universal_generator = None
     
     def open_spider(self, spider):
         """Initialize when spider starts"""
         api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            self.client = genai.Client(api_key=api_key)
-            spider.logger.info("✅ Đã khởi tạo Gemini Client")
+        if not api_key:
+            spider.logger.error("❌ Thiếu GEMINI_API_KEY!")
+            return
         
-        # Initialize prompt config
-        brand_name = os.getenv("BRAND_NAME", "Website")
-        self.prompt_config = PromptConfig(brand_name=brand_name)
+        self.client = genai.Client(api_key=api_key)
+        spider.logger.info("✅ Gemini Client ready")
+        
+        # V3: Initialize Universal Generator
+        if V3_AVAILABLE:
+            try:
+                self.universal_generator = UniversalIntelligentGenerator(api_key)
+                spider.logger.info("✨ V3 Universal Generator ready")
+            except Exception as e:
+                spider.logger.error(f"❌ V3 init failed: {e}")
+        else:
+            spider.logger.error("❌ V3 not available - Cannot generate content!")
     
     def process_item(self, item, spider):
+        """Process each item with V3 Universal System"""
+        
         if not self.client:
-            raise DropItem("Thiếu Gemini API Key hoặc Client chưa khởi tạo")
+            raise DropItem("❌ Gemini Client not initialized")
+        
+        if not V3_AVAILABLE or not self.universal_generator:
+            raise DropItem("❌ V3 Universal Generator not available!")
 
-        spider.logger.info(f"--- 🤖 Đang xử lý AI: {item['keyword']} ---")
+        spider.logger.info(f"--- 🤖 Processing: {item['keyword']} ---")
 
         # Get configurations from environment
         brand_name = os.getenv("BRAND_NAME", "Website")
         category_name = os.getenv("CATEGORY_NAME", "")
+        wp_url = os.getenv("WP_URL", "")
+        site_description = os.getenv("SITE_DESCRIPTION", "")
         
-        spider.logger.info(f"📁 Danh mục: {category_name or 'Không xác định'}")
+        # Get sample keywords (for first-time website analysis)
+        sample_keywords_str = os.getenv("SAMPLE_KEYWORDS", "")
+        sample_keywords = None
+        if sample_keywords_str:
+            sample_keywords = [k.strip() for k in sample_keywords_str.split(',') if k.strip()]
         
-        # Check for custom prompt from dashboard
-        custom_prompt = os.getenv("CHOSEN_PROMPT") or os.getenv("CUSTOM_PROMPT_TEMPLATE")
+        spider.logger.info(f"📁 Category: {category_name or 'N/A'}")
+        spider.logger.info(f"✨ Using V3 Universal System")
         
-        if custom_prompt:
-            # Use custom prompt with placeholder replacement
-            final_prompt = self._build_custom_prompt(
-                custom_prompt, 
-                item['keyword'], 
-                item['raw_text'],
-                brand_name
-            )
-            article_config = {'word_count': 'custom', 'variation': 'custom'}
-        else:
-            # Use vnrewrite-style prompt system
-            final_prompt, article_config = build_final_prompt(
+        # === V3: Generate Universal Prompt ===
+        try:
+            final_prompt = self.universal_generator.generate_with_auto_analysis(
                 keyword=item['keyword'],
-                content=item['raw_text'],
                 category_name=category_name,
                 brand_name=brand_name,
-                config=self.prompt_config
+                site_url=wp_url,
+                base_content=item['raw_text'],
+                site_description=site_description,
+                sample_keywords=sample_keywords
             )
+            
+            spider.logger.info("✅ V3 prompt generated")
+            
+        except Exception as e:
+            spider.logger.error(f"❌ V3 prompt generation failed: {e}")
+            raise DropItem(f"V3 failed for keyword: {item['keyword']}")
         
-        spider.logger.info(f"📝 Config: {article_config.get('word_count', 'N/A')} từ, "
-                          f"Variation: {article_config.get('variation', 'N/A')}")
-
-        # Call AI API
+        # === Call AI API ===
         result = self._call_ai_api(final_prompt, spider)
         
         if result is None:
-            raise DropItem(f"AI Thất bại: {item['keyword']}")
+            raise DropItem(f"AI failed: {item['keyword']}")
         
-        # Assign data
+        # Assign data to item
         item['ai_title'] = result['title']
         item['ai_content'] = result['content']
         item['ai_excerpt'] = result.get('excerpt', '')
         
-        # Record variation usage
-        if self.prompt_config and article_config.get('variation'):
-            self.prompt_config.record_variation_usage(article_config['variation'])
+        spider.logger.info(f"✅ AI generated content for: {item['keyword']}")
         
         return item
     
-    def _build_custom_prompt(self, template, keyword, content, brand_name):
-        """Build prompt from custom template with placeholder replacement"""
-        
-        # Generate random config for placeholders
-        word_count = random.randint(1200, 1800)
-        primary_kw = random.randint(6, 12)
-        secondary_kw = random.randint(4, 7)
-        
-        # Replace placeholders
-        prompt = template
-        prompt = prompt.replace("{keyword}", keyword)
-        prompt = prompt.replace("{{keyword}}", keyword)
-        prompt = prompt.replace("{content}", content)
-        prompt = prompt.replace("{{content}}", content)
-        prompt = prompt.replace("{brand_name}", brand_name)
-        prompt = prompt.replace("{{brand_name}}", brand_name)
-        prompt = prompt.replace("BRAND_CUA_BAN", brand_name)
-        
-        # vnrewrite-style placeholders
-        prompt = prompt.replace("{{WORD_COUNT}}", str(word_count))
-        prompt = prompt.replace("{{PRIMARY_KEYWORD_COUNT}}", str(primary_kw))
-        prompt = prompt.replace("{{SECONDARY_KEYWORD_COUNT}}", str(secondary_kw))
-        
-        # Ensure content is included
-        if "{content}" not in template and "{{content}}" not in template:
-            prompt += f"\n\n## NỘI DUNG GỐC\n{content}"
-        
-        return prompt
-    
     def _call_ai_api(self, prompt, spider):
-        """Call Gemini API with retry logic"""
+        """
+        Call Gemini API with retry logic
         
-        # Get preferred model from environment (only Gemini models for content generation)
+        Args:
+            prompt: The prompt to send to AI
+            spider: Spider instance for logging
+        
+        Returns:
+            dict: Parsed JSON response with title, content, excerpt
+        """
+        
         preferred_model = os.getenv("PREFERRED_MODEL", "gemini-2.5-flash")
-        
-        # Available Gemini models for content generation
         all_models = ['gemini-2.5-flash', 'gemini-2.5-pro']
         
         # Prioritize preferred model
@@ -142,12 +138,12 @@ class AiGenerationPipeline:
         else:
             candidate_models = all_models
         
-        spider.logger.info(f"🎯 Model ưu tiên: {preferred_model}")
+        spider.logger.info(f"🎯 Preferred Model: {preferred_model}")
         
         max_retries = 3
         
         for model_name in candidate_models:
-            spider.logger.info(f"--> Đang thử Model: {model_name}")
+            spider.logger.info(f"→ Trying model: {model_name}")
             
             for attempt in range(max_retries):
                 try:
@@ -156,62 +152,76 @@ class AiGenerationPipeline:
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             temperature=0.7,
-                            max_output_tokens=8192,  # Tăng để đủ cho bài dài
+                            max_output_tokens=8192,
                         )
                     )
                     
                     result_text = response.text
                     
-                    # Parse JSON
+                    # Parse JSON from response
                     clean_json = self._extract_json(result_text)
                     data = json.loads(clean_json)
                     
-                    # Validate
+                    # Validate response
                     if not data.get('title') or not data.get('content'):
                         raise ValueError("Missing title or content in response")
                     
-                    spider.logger.info(f"✅ AI xử lý thành công với {model_name}")
-                    
-                    # Store model used for reporting
+                    spider.logger.info(f"✅ AI success with {model_name}")
                     data['_model_used'] = model_name
                     
                     return data
                     
                 except json.JSONDecodeError as e:
-                    spider.logger.warning(f"⚠️ JSON lỗi (attempt {attempt+1}): {e}")
+                    spider.logger.warning(f"⚠️ JSON parse error (attempt {attempt+1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
                         time.sleep(2)
                         continue
+                    spider.logger.error(f"❌ JSON parsing failed after {max_retries} attempts with {model_name}")
                     break
                     
                 except Exception as e:
                     err_msg = str(e).lower()
                     
+                    # Rate limit error
                     if "429" in str(e) or "quota" in err_msg or "rate" in err_msg:
                         wait_time = 30 * (attempt + 1)
-                        spider.logger.warning(f"⚠️ Rate limit! Chờ {wait_time}s...")
+                        spider.logger.warning(f"⚠️ Rate limit hit! Waiting {wait_time}s...")
                         time.sleep(wait_time)
                         continue
                     
+                    # Model not found
                     elif "404" in str(e) or "not found" in err_msg:
-                        spider.logger.warning(f"❌ Model {model_name} không tìm thấy")
+                        spider.logger.warning(f"❌ Model {model_name} not found, trying next model...")
                         break
                     
+                    # Other errors
                     else:
-                        spider.logger.error(f"❌ Lỗi: {e}")
+                        spider.logger.error(f"❌ Error with {model_name}: {e}")
                         if attempt < max_retries - 1:
+                            spider.logger.info(f"→ Retrying in 5s... (attempt {attempt+2}/{max_retries})")
                             time.sleep(5)
                             continue
                         break
         
+        spider.logger.error("❌ All models failed!")
         return None
     
     def _extract_json(self, text):
-        """Extract JSON from AI response"""
+        """
+        Extract JSON from AI response text
+        
+        Handles cases where AI includes markdown code blocks
+        
+        Args:
+            text: Raw text from AI
+        
+        Returns:
+            str: Clean JSON string
+        """
         # Remove markdown code blocks
         text = text.replace('```json', '').replace('```', '')
         
-        # Try to find JSON object
+        # Find JSON object
         start = text.find('{')
         end = text.rfind('}') + 1
         
@@ -223,35 +233,39 @@ class AiGenerationPipeline:
 
 class WordPressPublisherPipeline:
     """
-    Pipeline đăng bài lên WordPress
+    WordPress Publisher Pipeline
+    
+    Uploads image and publishes post to WordPress
     """
     
     def process_item(self, item, spider):
+        """Publish item to WordPress"""
+        
         wp_url = os.getenv("WP_URL")
         wp_user = os.getenv("WP_USER")
         wp_pass = os.getenv("WP_APP_PASSWORD")
         
         if not all([wp_url, wp_user, wp_pass]):
-            spider.logger.error("Thiếu thông tin WordPress!")
+            spider.logger.error("❌ Missing WordPress credentials!")
             return item
         
-        # Category ID
+        # Get category ID
         cat_id_env = os.getenv("WP_CATEGORY_ID")
         category_ids = []
         if cat_id_env and cat_id_env.strip() and cat_id_env != "None":
             try:
                 category_ids = [int(cat_id_env)]
             except:
-                pass
+                spider.logger.warning(f"⚠️ Invalid category ID: {cat_id_env}")
 
         auth = (wp_user, wp_pass)
 
-        # 1. Upload Image
+        # 1. Upload Featured Image
         media_id = 0
         if item.get('image_url'):
             media_id = self._upload_image(item, auth, wp_url, spider)
 
-        # 2. Post article
+        # 2. Create Post
         post_data = {
             'title': item['ai_title'],
             'content': item['ai_content'],
@@ -260,7 +274,7 @@ class WordPressPublisherPipeline:
             'featured_media': media_id,
             'categories': category_ids,
             'meta': {
-                # Rank Math SEO
+                # RankMath SEO
                 'rank_math_focus_keyword': item['keyword'],
                 'rank_math_description': item['ai_excerpt'],
                 'rank_math_robots': ['index', 'follow'],
@@ -271,22 +285,44 @@ class WordPressPublisherPipeline:
         }
 
         try:
-            res = requests.post(f"{wp_url}/posts", json=post_data, auth=auth, timeout=30)
+            spider.logger.info(f"📤 Publishing to WordPress...")
+            res = requests.post(
+                f"{wp_url}/posts", 
+                json=post_data, 
+                auth=auth, 
+                timeout=30
+            )
+            
             if res.status_code == 201:
-                link = res.json().get('link', '')
-                spider.logger.info(f"✅ DANG BAI THANH CONG: {item['keyword']} -> {link}")
+                post_link = res.json().get('link', '')
+                spider.logger.info(f"✅ PUBLISHED: {item['keyword']}")
+                spider.logger.info(f"   Link: {post_link}")
             else:
-                spider.logger.error(f"❌ Đăng bài thất bại: {res.text[:500]}")
+                spider.logger.error(f"❌ Publish failed: HTTP {res.status_code}")
+                spider.logger.error(f"   Response: {res.text[:500]}")
+                
         except Exception as e:
-            spider.logger.error(f"❌ Lỗi kết nối WP: {e}")
+            spider.logger.error(f"❌ WordPress publish error: {e}")
 
         return item
     
     def _upload_image(self, item, auth, wp_url, spider):
-        """Upload image to WordPress"""
+        """
+        Upload image to WordPress media library
+        
+        Args:
+            item: Item with image_url
+            auth: WordPress auth tuple
+            wp_url: WordPress API URL
+            spider: Spider for logging
+        
+        Returns:
+            int: Media ID (0 if failed)
+        """
         try:
-            spider.logger.info(f"📷 Đang tải ảnh: {item['image_url'][:80]}...")
+            spider.logger.info(f"📷 Uploading image: {item['image_url'][:80]}...")
             
+            # Download image with proper headers
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': item.get('source_url', ''),
@@ -300,7 +336,7 @@ class WordPressPublisherPipeline:
             )
             
             if img_response.status_code == 200:
-                # Determine file extension
+                # Determine file extension from content type
                 content_type = img_response.headers.get('content-type', 'image/jpeg')
                 ext = 'jpg'
                 if 'png' in content_type:
@@ -310,25 +346,32 @@ class WordPressPublisherPipeline:
                 elif 'gif' in content_type:
                     ext = 'gif'
                 
-                # Clean filename
+                # Create SEO-friendly filename
                 keyword_clean = item['keyword'].replace(' ', '-')[:40]
                 keyword_clean = ''.join(c for c in keyword_clean if c.isalnum() or c == '-')
                 filename = f"seo-{keyword_clean}.{ext}"
                 
+                # Upload to WordPress
                 files = {'file': (filename, img_response.content, content_type)}
                 
-                res = requests.post(f"{wp_url}/media", files=files, auth=auth, timeout=30)
+                res = requests.post(
+                    f"{wp_url}/media", 
+                    files=files, 
+                    auth=auth, 
+                    timeout=30
+                )
                 
                 if res.status_code == 201:
                     media_id = res.json()['id']
-                    spider.logger.info(f"✅ Upload ảnh OK. ID: {media_id}")
+                    spider.logger.info(f"✅ Image uploaded. Media ID: {media_id}")
                     return media_id
                 else:
-                    spider.logger.warning(f"⚠️ Lỗi WP Media: {res.status_code}")
+                    spider.logger.warning(f"⚠️ Image upload failed: HTTP {res.status_code}")
+                    spider.logger.warning(f"   Response: {res.text[:300]}")
             else:
-                spider.logger.warning(f"⚠️ Không tải được ảnh: HTTP {img_response.status_code}")
+                spider.logger.warning(f"⚠️ Image download failed: HTTP {img_response.status_code}")
                 
         except Exception as e:
-            spider.logger.error(f"❌ Lỗi xử lý ảnh: {e}")
+            spider.logger.error(f"❌ Image upload error: {e}")
         
         return 0
