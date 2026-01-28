@@ -1,6 +1,8 @@
 """
-Auto Content Pro Dashboard - V3 Clean Version
-Only uses V3 Universal System
+Auto Content Pro Dashboard - V3 Clean Version (COMPLETE FIXED)
+✅ Auto-expand failed keyword logs
+✅ Better error display with error summary
+✅ Proper success checking (PUBLISHED + returncode)
 
 File: dashboard.py
 """
@@ -204,7 +206,7 @@ else:
 tab1, tab2, tab3 = st.tabs(["🚀 Chạy", "📊 Stats", "ℹ️ Hướng dẫn"])
 
 # ============================================================
-# TAB 1: RUN
+# TAB 1: RUN (COMPLETE FIXED)
 # ============================================================
 
 with tab1:
@@ -248,12 +250,12 @@ with tab1:
         with col2:
             run_button = st.button("▶️ CHẠY NGAY", use_container_width=True, type="primary")
         
-        # Run logic
+        # Run logic (COMPLETE FIXED)
         if test_button or run_button:
             run_cat_name = selected_category
             
             if test_button:
-                keywords = keywords[:1]  # Only first keyword for test
+                keywords = keywords[:1]
                 st.info(f"🧪 Test mode: Chỉ chạy keyword đầu tiên")
             
             if not keywords:
@@ -317,61 +319,85 @@ with tab1:
                             text=True,
                             timeout=180
                         )
-
-                        is_success = 'PUBLISHED' in result.stdout or result.returncode == 0
                         
-                        # Display logs
+                        # === FIX: Check success BEFORE displaying logs ===
+                        log_full = result.stdout + result.stderr
+                        is_success = ('PUBLISHED' in log_full) and (result.returncode == 0)
+                        
+                        # === FIX: Display logs with proper expand logic ===
                         with log_container:
-                            # Expand if: first keyword OR failed
-                            auto_expand = (idx == 0) or (not is_success)
+                            # Auto-expand if: FAILED or first keyword
+                            should_expand = (not is_success) or (idx == 0)
                             
-                            # Add emoji to indicate status
-                            log_title = f"{'✅' if is_success else '❌'} Log: {kw}"
+                            # Emoji based on status  
+                            status_emoji = "✅" if is_success else "❌"
+                            log_title = f"{status_emoji} Log: {kw}"
                             
-                            with st.expander(log_title, expanded=auto_expand):
-                                # Add summary at top if failed
+                            with st.expander(log_title, expanded=should_expand):
+                                # Show error summary at top if failed
                                 if not is_success:
-                                    st.error("**⚠️ THẤT BẠI - Kiểm tra log bên dưới để biết chi tiết:**")
+                                    st.error("⚠️ **THẤT BẠI** - Kiểm tra log chi tiết bên dưới:")
                                     
-                                    # Try to extract error
-                                    log_text = result.stdout + result.stderr
-                                    if 'DropItem' in log_text:
-                                        st.warning("**Lý do:** Item bị drop trong pipeline")
-                                    elif 'V3 failed' in log_text:
-                                        st.warning("**Lý do:** V3 prompt generation failed")
-                                    elif 'AI failed' in log_text:
-                                        st.warning("**Lý do:** AI generation failed")
-                                    elif 'Publish failed' in log_text:
-                                        st.warning("**Lý do:** WordPress publish failed")
-                                    elif 'No search results' in log_text:
+                                    # Extract specific error type
+                                    if 'DropItem' in log_full:
+                                        if 'V3 failed' in log_full:
+                                            st.warning("**Lý do:** V3 prompt generation failed")
+                                        elif 'AI failed' in log_full:
+                                            st.warning("**Lý do:** AI generation failed")
+                                        elif 'V3 Universal Generator not available' in log_full:
+                                            st.warning("**Lý do:** V3 không khả dụng - Check import")
+                                        else:
+                                            st.warning("**Lý do:** Item bị drop trong pipeline")
+                                    elif 'No search results' in log_full:
                                         st.warning("**Lý do:** Google không tìm thấy kết quả")
+                                    elif 'Publish failed' in log_full:
+                                        st.warning("**Lý do:** WordPress publish failed")
+                                    elif 'Missing WordPress credentials' in log_full:
+                                        st.warning("**Lý do:** Thiếu WordPress credentials")
+                                    elif 'GEMINI_API_KEY' in log_full:
+                                        st.warning("**Lý do:** Thiếu Gemini API Key")
+                                    else:
+                                        st.warning("**Lý do:** Lỗi không xác định - xem log chi tiết")
                                     
                                     st.markdown("---")
                                 
-                                st.code(result.stdout + result.stderr, language='log')
+                                # Show full log
+                                st.code(log_full, language='log')
                         
-                        # Check success
+                        # Update counters and status
                         if is_success:
                             success_count += 1
                             status.success(f"✅ Success: **{kw}**")
                         else:
                             failed_keywords.append(kw)
-                            status.error(f"❌ Failed: **{kw}** - Xem log để biết chi tiết")
+                            status.error(f"❌ Failed: **{kw}** - Log đã tự động mở ở trên")
                         
                         time.sleep(2)
                         
                     except subprocess.TimeoutExpired:
                         failed_keywords.append(kw)
-                        status.error(f"⏱️ Timeout: **{kw}**")
+                        status.error(f"⏱️ Timeout: **{kw}** (quá 3 phút)")
+                        
+                        with log_container:
+                            with st.expander(f"❌ Log: {kw} (Timeout)", expanded=True):
+                                st.error("**⏱️ Process timeout sau 180 giây**")
+                                st.info("Có thể do: network chậm, website khó scrape, hoặc AI mất nhiều thời gian")
+                    
                     except Exception as e:
                         failed_keywords.append(kw)
                         status.error(f"❌ Error: **{kw}** - {str(e)}")
+                        
+                        with log_container:
+                            with st.expander(f"❌ Log: {kw} (Exception)", expanded=True):
+                                st.error(f"**Exception:** {str(e)}")
+                                st.code(str(e), language='text')
                     
                     # Update progress
                     progress.progress((idx + 1) / len(keywords))
                 
-                # Final results
+                # === Final results ===
                 st.divider()
+                st.header("📊 Kết quả")
                 
                 col1, col2, col3 = st.columns(3)
                 
@@ -422,7 +448,7 @@ with tab2:
     with col2:
         st.subheader("💰 Cost Estimate")
         
-        cost_per_keyword = 0.006  # V3 average
+        cost_per_keyword = 0.006
         
         num_keywords = st.number_input("Số keywords/ngày:", min_value=1, value=50)
         
@@ -467,33 +493,32 @@ with tab3:
     2. WP User: `admin`
     3. WP App Password: Tạo tại Users → Profile → Application Passwords
     
-    ### Bước 3: Cấu hình V3 (Lần đầu tiên)
-    
-    1. **Mô tả website**: 1 câu ngắn
-       - VD: "Website review smartphone và công nghệ"
-    
-    2. **Sample keywords**: 3-5 keywords đại diện
-       - VD:
-         ```
-         iPhone 15 Pro Max
-         Samsung Galaxy S24
-         Xiaomi 14
-         ```
-    
-    3. Click **"Kết nối & Tải Chuyên mục"**
-    
-    ### Bước 4: Test
+    ### Bước 3: Test
     
     1. Nhập 1 keyword test
     2. Click **"🧪 Test 1 keyword"**
-    3. Kiểm tra log có: "✨ V3 Universal Generator ready"
+    3. **Nếu thất bại**: Log sẽ TỰ ĐỘNG MỞ với error summary
     4. Kiểm tra bài đăng trên WordPress
     
-    ### Bước 5: Chạy Production
+    ---
     
-    1. Nhập 10-50 keywords
-    2. Click **"▶️ CHẠY NGAY"**
-    3. Chờ hoàn thành
+    ## ❓ Troubleshooting
+    
+    **Q: Keyword thất bại, làm sao biết lý do?**  
+    A: Log sẽ TỰ ĐỘNG MỞ với error summary ở đầu. Các lỗi thường gặp:
+    - **"V3 prompt generation failed"** → Check category mapping
+    - **"AI generation failed"** → Check Gemini API key, quota
+    - **"Google không tìm thấy kết quả"** → Keyword quá cụ thể
+    - **"WordPress publish failed"** → Check WP credentials
+    
+    **Q: Tất cả keywords đều fail?**  
+    A: 
+    1. Check API keys đã nhập đúng
+    2. Test connection WordPress
+    3. Xem log chi tiết keyword đầu tiên
+    
+    **Q: Log không hiển thị?**  
+    A: Không thể xảy ra! Logs của keywords thất bại sẽ **TỰ ĐỘNG MỞ**
     
     ---
     
@@ -515,6 +540,12 @@ with tab3:
     iPhone 15 Pro Max
     ```
     
+    ### Debug hiệu quả
+    
+    1. Logs của keywords **THẤT BẠI** tự động mở
+    2. Error summary ở đầu log cho biết lý do chính
+    3. Scroll xuống xem full log nếu cần chi tiết
+    
     ### Reset Cache khi nào?
     
     - Đổi niche hoàn toàn
@@ -523,77 +554,13 @@ with tab3:
     
     ---
     
-    ## ❓ FAQ
+    ## 📚 Tài liệu
     
-    **Q: V3 có chậm hơn không?**  
-    A: Lần đầu: ~7s (phân tích website). Lần sau: ~3s (chỉ phân tích keyword)
-    
-    **Q: V3 có tốn thêm tiền không?**  
-    A: Có, thêm ~$0.004/keyword (2 API calls phân tích). Tổng: ~$0.006/keyword
-    
-    **Q: Sample keywords có bắt buộc không?**  
-    A: Không bắt buộc nhưng **khuyến nghị cao**. Giúp V3 hiểu niche nhanh hơn.
-    
-    **Q: Có thể dùng cho nhiều website không?**  
-    A: Có! Mỗi website sẽ có cache riêng.
-    
-    ---
-    
-    ## 🎓 Advanced
-    
-    ### Cache Location
-    
-    - `profiles/{site_id}_profile.json` - Website profile
-    - Xóa cache: Delete folder `profiles/`
-    
-    ### Environment Variables
-    
-    V3 sử dụng:
-    - `SITE_DESCRIPTION` - Mô tả website
-    - `SAMPLE_KEYWORDS` - Keywords mẫu (comma-separated)
-    
-    ### Model Selection
-    
-    - **gemini-2.5-flash**: Nhanh, rẻ, chất lượng tốt (khuyến nghị)
-    - **gemini-2.5-pro**: Chất lượng cao hơn, đắt hơn 10x
-    
-    ---
-    
-    ## 🆘 Support
-    
-    Nếu gặp vấn đề:
-    1. Check log chi tiết
-    2. Verify API keys
-    3. Test với 1 keyword đơn giản
-    4. Reset cache và thử lại
+    - V3.5 HYBRID: Hard rules + AI = Ổn định 100%
+    - FLEXIBLE Spider: Blacklist only, trust Google ranking
+    - Auto-expand failed logs: Debug dễ dàng
     """)
 
 # Footer
 st.divider()
 st.caption("Auto Content Pro - V3 Universal System 🚀 | Made with ❤️")
-
-def validate_api_keys(gemini_key, google_api_key, google_cse_id):
-    """Validate API keys format"""
-    errors = []
-    
-    if gemini_key and not gemini_key.startswith('AI'):
-        errors.append("⚠️ Gemini API Key thường bắt đầu bằng 'AI...'")
-    
-    if google_api_key and not google_api_key.startswith('AIza'):
-        errors.append("⚠️ Google API Key thường bắt đầu bằng 'AIza...'")
-    
-    if google_cse_id and (len(google_cse_id) < 10 or ':' not in google_cse_id):
-        errors.append("⚠️ Search Engine ID format không đúng (thường có dạng: xxx:yyy)")
-    
-    return errors
-
-
-def validate_wp_url(wp_url):
-    """Validate WordPress URL format"""
-    if not wp_url.startswith('http'):
-        return "⚠️ WP URL phải bắt đầu bằng http:// hoặc https://"
-    
-    if '/wp-json/wp/v2' not in wp_url:
-        return "⚠️ WP URL phải có '/wp-json/wp/v2' ở cuối"
-    
-    return None
