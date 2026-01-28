@@ -7,18 +7,17 @@ import scrapy
 
 
 class BlogPostItem(scrapy.Item):
+    """Blog post item - Clean version"""
+    
     # Input từ User
     keyword = scrapy.Field()
 
-    # Dữ liệu Cào được (Raw)
+    # Dữ liệu từ Google Search + Scraping
     source_url = scrapy.Field()
     raw_text = scrapy.Field()
-    image_url = scrapy.Field()  # Link ảnh gốc
+    image_url = scrapy.Field()
 
-    # Dữ liệu AI xử lý (Output)
+    # Dữ liệu AI tạo ra (Output)
     ai_title = scrapy.Field()
     ai_content = scrapy.Field()
     ai_excerpt = scrapy.Field()
-
-    # Dữ liệu WordPress
-    wp_media_id = scrapy.Field() # ID ảnh sau khi upload

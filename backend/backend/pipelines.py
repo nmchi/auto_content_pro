@@ -1,6 +1,6 @@
 """
-Scrapy Pipelines - V3 Universal System ONLY
-Clean version - No V1, No V2, Only V3
+Scrapy Pipelines - V3 Universal System ONLY (OPTIMIZED)
+Clean version with improved error handling and stats
 
 File: backend/backend/pipelines.py
 """
@@ -27,16 +27,16 @@ except ImportError:
 
 
 class AiGenerationPipeline:
-    """
-    AI Generation Pipeline - V3 Universal System
-    
-    Chỉ sử dụng V3 Universal Intelligent Generator
-    Tự động adapt với mọi niche: tech, health, finance, education...
-    """
+    """AI Generation Pipeline - V3 Universal System (Optimized)"""
     
     def __init__(self):
         self.client = None
         self.universal_generator = None
+        self.stats = {
+            'total_processed': 0,
+            'ai_success': 0,
+            'ai_failed': 0
+        }
     
     def open_spider(self, spider):
         """Initialize when spider starts"""
@@ -58,6 +58,13 @@ class AiGenerationPipeline:
         else:
             spider.logger.error("❌ V3 not available - Cannot generate content!")
     
+    def close_spider(self, spider):
+        """Log stats when spider closes"""
+        spider.logger.info(f"=== AI Generation Stats ===")
+        spider.logger.info(f"  Total processed: {self.stats['total_processed']}")
+        spider.logger.info(f"  AI success: {self.stats['ai_success']}")
+        spider.logger.info(f"  AI failed: {self.stats['ai_failed']}")
+    
     def process_item(self, item, spider):
         """Process each item with V3 Universal System"""
         
@@ -67,6 +74,7 @@ class AiGenerationPipeline:
         if not V3_AVAILABLE or not self.universal_generator:
             raise DropItem("❌ V3 Universal Generator not available!")
 
+        self.stats['total_processed'] += 1
         spider.logger.info(f"--- 🤖 Processing: {item['keyword']} ---")
 
         # Get configurations from environment
@@ -75,7 +83,7 @@ class AiGenerationPipeline:
         wp_url = os.getenv("WP_URL", "")
         site_description = os.getenv("SITE_DESCRIPTION", "")
         
-        # Get sample keywords (for first-time website analysis)
+        # Get sample keywords
         sample_keywords_str = os.getenv("SAMPLE_KEYWORDS", "")
         sample_keywords = None
         if sample_keywords_str:
@@ -99,6 +107,7 @@ class AiGenerationPipeline:
             spider.logger.info("✅ V3 prompt generated")
             
         except Exception as e:
+            self.stats['ai_failed'] += 1
             spider.logger.error(f"❌ V3 prompt generation failed: {e}")
             raise DropItem(f"V3 failed for keyword: {item['keyword']}")
         
@@ -106,7 +115,11 @@ class AiGenerationPipeline:
         result = self._call_ai_api(final_prompt, spider)
         
         if result is None:
+            self.stats['ai_failed'] += 1
             raise DropItem(f"AI failed: {item['keyword']}")
+        
+        # Success
+        self.stats['ai_success'] += 1
         
         # Assign data to item
         item['ai_title'] = result['title']
@@ -118,16 +131,7 @@ class AiGenerationPipeline:
         return item
     
     def _call_ai_api(self, prompt, spider):
-        """
-        Call Gemini API with retry logic
-        
-        Args:
-            prompt: The prompt to send to AI
-            spider: Spider instance for logging
-        
-        Returns:
-            dict: Parsed JSON response with title, content, excerpt
-        """
+        """Call Gemini API with retry logic (Optimized)"""
         
         preferred_model = os.getenv("PREFERRED_MODEL", "gemini-2.5-flash")
         all_models = ['gemini-2.5-flash', 'gemini-2.5-pro']
@@ -176,7 +180,7 @@ class AiGenerationPipeline:
                     if attempt < max_retries - 1:
                         time.sleep(2)
                         continue
-                    spider.logger.error(f"❌ JSON parsing failed after {max_retries} attempts with {model_name}")
+                    spider.logger.error(f"❌ JSON parsing failed after {max_retries} attempts")
                     break
                     
                 except Exception as e:
@@ -185,20 +189,20 @@ class AiGenerationPipeline:
                     # Rate limit error
                     if "429" in str(e) or "quota" in err_msg or "rate" in err_msg:
                         wait_time = 30 * (attempt + 1)
-                        spider.logger.warning(f"⚠️ Rate limit hit! Waiting {wait_time}s...")
+                        spider.logger.warning(f"⚠️ Rate limit! Waiting {wait_time}s...")
                         time.sleep(wait_time)
                         continue
                     
                     # Model not found
                     elif "404" in str(e) or "not found" in err_msg:
-                        spider.logger.warning(f"❌ Model {model_name} not found, trying next model...")
+                        spider.logger.warning(f"❌ Model {model_name} not found, trying next...")
                         break
                     
                     # Other errors
                     else:
                         spider.logger.error(f"❌ Error with {model_name}: {e}")
                         if attempt < max_retries - 1:
-                            spider.logger.info(f"→ Retrying in 5s... (attempt {attempt+2}/{max_retries})")
+                            spider.logger.info(f"→ Retrying in 5s... ({attempt+2}/{max_retries})")
                             time.sleep(5)
                             continue
                         break
@@ -207,17 +211,7 @@ class AiGenerationPipeline:
         return None
     
     def _extract_json(self, text):
-        """
-        Extract JSON from AI response text
-        
-        Handles cases where AI includes markdown code blocks
-        
-        Args:
-            text: Raw text from AI
-        
-        Returns:
-            str: Clean JSON string
-        """
+        """Extract JSON from AI response text"""
         # Remove markdown code blocks
         text = text.replace('```json', '').replace('```', '')
         
@@ -232,14 +226,30 @@ class AiGenerationPipeline:
 
 
 class WordPressPublisherPipeline:
-    """
-    WordPress Publisher Pipeline
+    """WordPress Publisher Pipeline (Optimized with stats)"""
     
-    Uploads image and publishes post to WordPress
-    """
+    def __init__(self):
+        self.stats = {
+            'total_processed': 0,
+            'publish_success': 0,
+            'publish_failed': 0,
+            'image_upload_success': 0,
+            'image_upload_failed': 0
+        }
+    
+    def close_spider(self, spider):
+        """Log stats when spider closes"""
+        spider.logger.info(f"=== WordPress Publish Stats ===")
+        spider.logger.info(f"  Total processed: {self.stats['total_processed']}")
+        spider.logger.info(f"  Publish success: {self.stats['publish_success']}")
+        spider.logger.info(f"  Publish failed: {self.stats['publish_failed']}")
+        spider.logger.info(f"  Image upload success: {self.stats['image_upload_success']}")
+        spider.logger.info(f"  Image upload failed: {self.stats['image_upload_failed']}")
     
     def process_item(self, item, spider):
         """Publish item to WordPress"""
+        
+        self.stats['total_processed'] += 1
         
         wp_url = os.getenv("WP_URL")
         wp_user = os.getenv("WP_USER")
@@ -247,6 +257,7 @@ class WordPressPublisherPipeline:
         
         if not all([wp_url, wp_user, wp_pass]):
             spider.logger.error("❌ Missing WordPress credentials!")
+            self.stats['publish_failed'] += 1
             return item
         
         # Get category ID
@@ -294,31 +305,23 @@ class WordPressPublisherPipeline:
             )
             
             if res.status_code == 201:
+                self.stats['publish_success'] += 1
                 post_link = res.json().get('link', '')
                 spider.logger.info(f"✅ PUBLISHED: {item['keyword']}")
                 spider.logger.info(f"   Link: {post_link}")
             else:
+                self.stats['publish_failed'] += 1
                 spider.logger.error(f"❌ Publish failed: HTTP {res.status_code}")
                 spider.logger.error(f"   Response: {res.text[:500]}")
                 
         except Exception as e:
+            self.stats['publish_failed'] += 1
             spider.logger.error(f"❌ WordPress publish error: {e}")
 
         return item
     
     def _upload_image(self, item, auth, wp_url, spider):
-        """
-        Upload image to WordPress media library
-        
-        Args:
-            item: Item with image_url
-            auth: WordPress auth tuple
-            wp_url: WordPress API URL
-            spider: Spider for logging
-        
-        Returns:
-            int: Media ID (0 if failed)
-        """
+        """Upload image to WordPress media library"""
         try:
             spider.logger.info(f"📷 Uploading image: {item['image_url'][:80]}...")
             
@@ -336,7 +339,7 @@ class WordPressPublisherPipeline:
             )
             
             if img_response.status_code == 200:
-                # Determine file extension from content type
+                # Determine file extension
                 content_type = img_response.headers.get('content-type', 'image/jpeg')
                 ext = 'jpg'
                 if 'png' in content_type:
@@ -346,7 +349,7 @@ class WordPressPublisherPipeline:
                 elif 'gif' in content_type:
                     ext = 'gif'
                 
-                # Create SEO-friendly filename
+                # SEO-friendly filename
                 keyword_clean = item['keyword'].replace(' ', '-')[:40]
                 keyword_clean = ''.join(c for c in keyword_clean if c.isalnum() or c == '-')
                 filename = f"seo-{keyword_clean}.{ext}"
@@ -363,15 +366,18 @@ class WordPressPublisherPipeline:
                 
                 if res.status_code == 201:
                     media_id = res.json()['id']
+                    self.stats['image_upload_success'] += 1
                     spider.logger.info(f"✅ Image uploaded. Media ID: {media_id}")
                     return media_id
                 else:
+                    self.stats['image_upload_failed'] += 1
                     spider.logger.warning(f"⚠️ Image upload failed: HTTP {res.status_code}")
-                    spider.logger.warning(f"   Response: {res.text[:300]}")
             else:
+                self.stats['image_upload_failed'] += 1
                 spider.logger.warning(f"⚠️ Image download failed: HTTP {img_response.status_code}")
                 
         except Exception as e:
+            self.stats['image_upload_failed'] += 1
             spider.logger.error(f"❌ Image upload error: {e}")
         
         return 0

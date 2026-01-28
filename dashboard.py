@@ -317,19 +317,46 @@ with tab1:
                             text=True,
                             timeout=180
                         )
+
+                        is_success = 'PUBLISHED' in result.stdout or result.returncode == 0
                         
                         # Display logs
                         with log_container:
-                            with st.expander(f"📋 Log: {kw}", expanded=(idx == 0)):
+                            # Expand if: first keyword OR failed
+                            auto_expand = (idx == 0) or (not is_success)
+                            
+                            # Add emoji to indicate status
+                            log_title = f"{'✅' if is_success else '❌'} Log: {kw}"
+                            
+                            with st.expander(log_title, expanded=auto_expand):
+                                # Add summary at top if failed
+                                if not is_success:
+                                    st.error("**⚠️ THẤT BẠI - Kiểm tra log bên dưới để biết chi tiết:**")
+                                    
+                                    # Try to extract error
+                                    log_text = result.stdout + result.stderr
+                                    if 'DropItem' in log_text:
+                                        st.warning("**Lý do:** Item bị drop trong pipeline")
+                                    elif 'V3 failed' in log_text:
+                                        st.warning("**Lý do:** V3 prompt generation failed")
+                                    elif 'AI failed' in log_text:
+                                        st.warning("**Lý do:** AI generation failed")
+                                    elif 'Publish failed' in log_text:
+                                        st.warning("**Lý do:** WordPress publish failed")
+                                    elif 'No search results' in log_text:
+                                        st.warning("**Lý do:** Google không tìm thấy kết quả")
+                                    
+                                    st.markdown("---")
+                                
                                 st.code(result.stdout + result.stderr, language='log')
                         
                         # Check success
-                        if 'PUBLISHED' in result.stdout or result.returncode == 0:
+                        if is_success:
                             success_count += 1
                             status.success(f"✅ Success: **{kw}**")
                         else:
                             failed_keywords.append(kw)
-                            status.error(f"❌ Failed: **{kw}**")
+                            status.error(f"❌ Failed: **{kw}** - Xem log để biết chi tiết")
                         
                         time.sleep(2)
                         
@@ -359,9 +386,11 @@ with tab1:
                     st.metric("📊 Tỷ lệ", f"{success_rate:.1f}%")
                 
                 if failed_keywords:
-                    with st.expander("❌ Keywords thất bại"):
-                        for kw in failed_keywords:
-                            st.write(f"- {kw}")
+                    st.error("**❌ Keywords thất bại:**")
+                    for kw in failed_keywords:
+                        st.write(f"- {kw}")
+                    
+                    st.info("💡 **Tip:** Click vào log của keyword thất bại (đã tự động mở) để xem chi tiết lỗi")
 
 # ============================================================
 # TAB 2: STATS
@@ -542,3 +571,29 @@ with tab3:
 # Footer
 st.divider()
 st.caption("Auto Content Pro - V3 Universal System 🚀 | Made with ❤️")
+
+def validate_api_keys(gemini_key, google_api_key, google_cse_id):
+    """Validate API keys format"""
+    errors = []
+    
+    if gemini_key and not gemini_key.startswith('AI'):
+        errors.append("⚠️ Gemini API Key thường bắt đầu bằng 'AI...'")
+    
+    if google_api_key and not google_api_key.startswith('AIza'):
+        errors.append("⚠️ Google API Key thường bắt đầu bằng 'AIza...'")
+    
+    if google_cse_id and (len(google_cse_id) < 10 or ':' not in google_cse_id):
+        errors.append("⚠️ Search Engine ID format không đúng (thường có dạng: xxx:yyy)")
+    
+    return errors
+
+
+def validate_wp_url(wp_url):
+    """Validate WordPress URL format"""
+    if not wp_url.startswith('http'):
+        return "⚠️ WP URL phải bắt đầu bằng http:// hoặc https://"
+    
+    if '/wp-json/wp/v2' not in wp_url:
+        return "⚠️ WP URL phải có '/wp-json/wp/v2' ở cuối"
+    
+    return None
